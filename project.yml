@@ -1,0 +1,68 @@
+name: ScreenSnipe
+options:
+  bundleIdPrefix: app.screensnipe
+  deploymentTarget:
+    macOS: "14.0"
+  xcodeVersion: "16.0"
+  generateEmptyDirectories: true
+  createIntermediateGroups: true
+
+schemes:
+  ScreenSnipe:
+    build:
+      targets:
+        ScreenSnipe: all
+    run:
+      config: Debug
+  ScreenSnipeTests:
+    build:
+      targets:
+        ScreenSnipe: all
+        ScreenSnipeTests: [test]
+    test:
+      config: Debug
+      targets:
+        - ScreenSnipeTests
+
+settings:
+  SWIFT_VERSION: "6"
+  MARKETING_VERSION: "1.6.0"
+  CURRENT_PROJECT_VERSION: "2"
+  CODE_SIGN_STYLE: Manual
+  DEVELOPMENT_TEAM: QP3GV5Z4XY
+  CODE_SIGN_IDENTITY: "Apple Development: Aleksandar Vucetic (UMQ77366KY)"
+  ENABLE_HARDENED_RUNTIME: YES
+
+targets:
+  ScreenSnipe:
+    type: application
+    platform: macOS
+    sources:
+      - ScreenSnipe
+    settings:
+      base:
+        PRODUCT_NAME: Screen Snipe
+        PRODUCT_BUNDLE_IDENTIFIER: app.screensnipe.app
+        INFOPLIST_FILE: ScreenSnipe/Resources/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        SWIFT_STRICT_CONCURRENCY: complete
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: ScreenSnipe/ScreenSnipeDebug.entitlements
+          PRODUCT_BUNDLE_IDENTIFIER: app.screensnipe.app.debug
+        Release:
+          CODE_SIGN_ENTITLEMENTS: ScreenSnipe/ScreenSnipe.entitlements
+    dependencies:
+      - sdk: ScreenCaptureKit.framework
+      - sdk: AVFoundation.framework
+      - sdk: Vision.framework
+  ScreenSnipeTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - ScreenSnipeTests
+    dependencies:
+      - target: ScreenSnipe
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: app.screensnipe.tests
+      GENERATE_INFOPLIST_FILE: YES
