@@ -19,6 +19,25 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 - Bump the **minor** version (second number) for releases: 1.1.0 → 1.2.0 → 1.3.0
 - `CURRENT_PROJECT_VERSION` (build number) is managed automatically — do not change it manually
 
+## Releasing
+
+`main` is a protected branch — all changes go through PRs, including releases. Tags are `vX.Y.Z` (annotated).
+
+1. **Bump `MARKETING_VERSION`** in `project.yml` (minor bump per Versioning above)
+2. **Update `CHANGELOG.md`**:
+   - Rename `## [Unreleased]` → `## [X.Y.0] - YYYY-MM-DD`
+   - Add a fresh empty `## [Unreleased]` section above it
+   - Update bottom comparison links: change `[Unreleased]: …/compare/vX.Y.0...HEAD` and add `[X.Y.0]: …/compare/vPREV...vX.Y.0`
+3. **Branch from `main`**, push, open a PR. The `build.yml` CI must pass before merge.
+4. **After merge**, tag against the actual merge commit (not the local branch HEAD — the SHA may differ if GitHub squashes/rebases):
+   ```bash
+   git checkout main && git pull
+   git tag -a vX.Y.0 -m "vX.Y.0 — <one-line summary>"
+   git push origin vX.Y.0
+   ```
+5. **App Store submission**: Xcode → Product → Archive → Distribute App → App Store Connect. Apple review typically takes ~24h.
+6. **No signed GitHub binaries** are published — the tag itself is the release marker. Distribution is MAS-only.
+
 ## Design Philosophy
 
 - **Native look is paramount**: Always match native macOS appearance. Use system-provided components (NavigationSplitView, List with .sidebar style) over custom implementations.
