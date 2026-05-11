@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.6.1] - 2026-05-11
+
+Maintenance release — no user-facing app changes. Establishes the open-source project scaffolding for the public GitHub repository: Code of Conduct, support documentation, issue and pull request templates, GitHub Actions build check, and Dependabot.
+
 ## [1.6.0] - 2026-05-09
 
 Initial public release on the Mac App Store and GitHub.
@@ -33,5 +37,6 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.6.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.6.1...HEAD
+[1.6.1]: https://github.com/vucetica/screensnipe/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/vucetica/screensnipe/releases/tag/v1.6.0
