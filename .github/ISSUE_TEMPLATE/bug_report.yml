@@ -1,0 +1,67 @@
+name: Bug report
+description: Report something that isn't working as expected
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug! Please include enough information to reproduce.
+  - type: input
+    id: macos-version
+    attributes:
+      label: macOS version
+      placeholder: e.g. macOS 14.5 (Sonoma) or macOS 26.0
+    validations:
+      required: true
+  - type: input
+    id: app-version
+    attributes:
+      label: Screen Snipe version
+      description: Find this under the Screen Snipe menu → About Screen Snipe.
+      placeholder: e.g. 1.6.0
+    validations:
+      required: true
+  - type: dropdown
+    id: source
+    attributes:
+      label: How did you install it?
+      options:
+        - Mac App Store
+        - Built from source
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open Screen Snipe
+        2. Click ...
+        3. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot or recording (optional)
+      description: Drag and drop here. Often the fastest way to communicate a UI issue.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Pre-flight
+      options:
+        - label: I searched existing issues and didn't find a duplicate.
+          required: true

@@ -50,4 +50,4 @@ See [SECURITY.md](SECURITY.md) for vulnerability reporting — please don't open
 
 ## Code of conduct
 
-Be respectful. This is a small community; assume good faith and keep discussions on the technical merits.
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). By participating, you agree to uphold it. Report unacceptable behavior to support@screensnipe.app.
