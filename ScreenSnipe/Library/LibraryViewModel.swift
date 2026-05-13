@@ -151,10 +151,11 @@ final class LibraryViewModel: ObservableObject {
 
     // MARK: - Metadata
 
-    func updateMetadata(for entry: LibraryEntry, name: String?, description: String?) {
+    func updateMetadata(for entry: LibraryEntry, name: String?, description: String?, tags: [String]) {
         var metadata = entry.metadata
         metadata.name = name
         metadata.description = description
+        metadata.tags = tags
         do {
             try LibraryManager.shared.saveMetadata(metadata, for: entry)
         } catch {

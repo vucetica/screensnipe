@@ -51,6 +51,7 @@
 		8FB076D94D6201DE50400CDE /* StitchDialogView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E9F28057EB89E25F4314CD2D /* StitchDialogView.swift */; };
 		956797FEB1F5F3418814B212 /* PresetManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 06C0283B1CE1AD9915197965 /* PresetManager.swift */; };
 		98C7D983E16BEBF698A8BFBA /* Vision.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 7426605E04F50CE90B018F7F /* Vision.framework */; };
+		9975D357BB8859D2DCA65CA2 /* LibraryEntryEditView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7D27E8A68BDB8F8877165E75 /* LibraryEntryEditView.swift */; };
 		9C338F2858F7C831E40EB211 /* CanvasRepresentable.swift in Sources */ = {isa = PBXBuildFile; fileRef = 75742739B4D060959A473C68 /* CanvasRepresentable.swift */; };
 		A0B1858D7378BFCD2EF57440 /* StitchService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6A9F486F6065BC759602221A /* StitchService.swift */; };
 		A60076869501B9F6AAC96F38 /* LibraryPreferencesTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3725ACB29CD15C47AF3867AB /* LibraryPreferencesTab.swift */; };
@@ -119,6 +120,7 @@
 		75742739B4D060959A473C68 /* CanvasRepresentable.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CanvasRepresentable.swift; sourceTree = "<group>"; };
 		79CF7310252C03E41F59B915 /* CropTool.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CropTool.swift; sourceTree = "<group>"; };
 		7C0843ADB418BD6BC7057BCE /* AnnotationStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AnnotationStore.swift; sourceTree = "<group>"; };
+		7D27E8A68BDB8F8877165E75 /* LibraryEntryEditView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LibraryEntryEditView.swift; sourceTree = "<group>"; };
 		7D376D0161B6CEF41E2739BA /* AudioSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AudioSettings.swift; sourceTree = "<group>"; };
 		8083180F5DCE32C60E2CD3D5 /* ShortcutAction.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutAction.swift; sourceTree = "<group>"; };
 		825745CA870811F85EE70E25 /* ScreenSnipeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenSnipeTests.swift; sourceTree = "<group>"; };
@@ -216,6 +218,7 @@
 			children = (
 				673215BBCC18740743A988FF /* AsyncThumbnailView.swift */,
 				F0B2D9D328AFA85679F7F76E /* LibraryDetailView.swift */,
+				7D27E8A68BDB8F8877165E75 /* LibraryEntryEditView.swift */,
 				C5C63C55BB263ECF2FE3050C /* LibraryEntryRow.swift */,
 				3725ACB29CD15C47AF3867AB /* LibraryPreferencesTab.swift */,
 				F57CE7C058D54E9425CFCA74 /* LibrarySidebar.swift */,
@@ -480,6 +483,7 @@
 				E954CA52682328260EFD8CEF /* ImageExportService.swift in Sources */,
 				05E0A96954F0C673B361DF83 /* LibraryDetailView.swift in Sources */,
 				BAE3043844AB05D76B3C1D45 /* LibraryEntry.swift in Sources */,
+				9975D357BB8859D2DCA65CA2 /* LibraryEntryEditView.swift in Sources */,
 				F4E61D6636009E305ABB85ED /* LibraryEntryRow.swift in Sources */,
 				6975B872A10F8A37C2FB9867 /* LibraryManager.swift in Sources */,
 				A60076869501B9F6AAC96F38 /* LibraryPreferencesTab.swift in Sources */,
@@ -543,7 +547,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ScreenSnipe/ScreenSnipe.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 8594MRU6A8;
 				INFOPLIST_FILE = ScreenSnipe/Resources/Info.plist;
@@ -615,7 +619,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.6.1;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -678,7 +682,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.6.0;
+				MARKETING_VERSION = 1.6.1;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -694,7 +698,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = ScreenSnipe/ScreenSnipeDebug.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
 				COMBINE_HIDPI_IMAGES = YES;
 				"DEVELOPMENT_TEAM[sdk=macosx*]" = 8594MRU6A8;
 				INFOPLIST_FILE = ScreenSnipe/Resources/Info.plist;
