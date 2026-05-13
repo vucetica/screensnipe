@@ -2,6 +2,8 @@
 
 Thanks for your interest! ScreenSnipe is an indie macOS app and contributions of all sizes are welcome — bug reports, fixes, new features, docs.
 
+A note up front: ScreenSnipe is mostly vibe-coded — most of the code was written with AI coding agents. That means you may run into AI-flavored patterns, occasional over-engineering, or comments that don't quite match the code. PRs that simplify or tighten things up are very welcome alongside feature work and bug fixes.
+
 ## Quick start
 
 1. Fork the repo and clone your fork
