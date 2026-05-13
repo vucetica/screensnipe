@@ -128,8 +128,3 @@ Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the build 
 ## License
 
 [MIT](LICENSE) — © 2026 Aleksandar Vucetic. The "Screen Snipe" name, logo, and app icon are excluded from the license; please don't reuse them to identify forks or derivatives.
-
-## Roadmap
-
-- Cloud export (iCloud Drive, Google Drive) for sharing videos
-- Tags and search in the library
