@@ -6,7 +6,10 @@ import AVFoundation
 final class LibraryManager: ObservableObject {
     static let shared = LibraryManager()
 
-    @Published var entries: [LibraryEntry] = []
+    @Published var entries: [LibraryEntry] = [] {
+        didSet { rebuildTagIndex() }
+    }
+    @Published private(set) var allTags: [String] = []
 
     private static let bookmarkKey = "libraryBookmark"
     private static let dateFormat = "yyyy-MM-dd-HH-mm-ss-SSS"
@@ -277,6 +280,21 @@ final class LibraryManager: ObservableObject {
         if let index = entries.firstIndex(where: { $0.id == entry.id }) {
             entries[index].metadata = metadata
         }
+    }
+
+    // MARK: - Tag Index
+
+    private func rebuildTagIndex() {
+        var seen: [String: String] = [:]
+        for entry in entries {
+            for tag in entry.metadata.tags {
+                let key = tag.lowercased()
+                if seen[key] == nil {
+                    seen[key] = tag
+                }
+            }
+        }
+        allTags = seen.values.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     // MARK: - Delete

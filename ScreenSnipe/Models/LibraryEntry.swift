@@ -8,6 +8,26 @@ enum MediaType: String, Sendable {
 struct CaptureMetadata: Codable, Sendable, Equatable {
     var name: String?
     var description: String?
+    var tags: [String] = []
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case description
+        case tags
+    }
+
+    init(name: String? = nil, description: String? = nil, tags: [String] = []) {
+        self.name = name
+        self.description = description
+        self.tags = tags
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.description = try container.decodeIfPresent(String.self, forKey: .description)
+        self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+    }
 }
 
 struct LibraryEntry: Identifiable, Sendable, Equatable {

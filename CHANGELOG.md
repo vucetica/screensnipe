@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-05-13
+
+### Added
+- Per-entry tags: tag captures from a unified Edit dialog with name, description, and tag-token input. Tags render as pills on each sidebar row.
+- Library search: toolbar search field filters the sidebar by name, description, tag, or capture date (case-insensitive substring match).
+
 ## [1.6.1] - 2026-05-11
 
 Maintenance release — no user-facing app changes. Establishes the open-source project scaffolding for the public GitHub repository: Code of Conduct, support documentation, issue and pull request templates, GitHub Actions build check, and Dependabot.
@@ -37,6 +43,7 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.6.1...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.7.0...HEAD
+[1.7.0]: https://github.com/vucetica/screensnipe/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/vucetica/screensnipe/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/vucetica/screensnipe/releases/tag/v1.6.0

@@ -2,6 +2,7 @@ import AppKit
 import Combine
 
 private extension NSToolbarItem.Identifier {
+    static let search = NSToolbarItem.Identifier("app.screensnipe.toolbar.search")
     static let undo = NSToolbarItem.Identifier("app.screensnipe.toolbar.undo")
     static let redo = NSToolbarItem.Identifier("app.screensnipe.toolbar.redo")
     static let toolPicker = NSToolbarItem.Identifier("app.screensnipe.toolbar.toolPicker")
@@ -96,6 +97,15 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
 
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier, willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         switch itemIdentifier {
+        case .search:
+            let item = NSSearchToolbarItem(itemIdentifier: .search)
+            item.searchField.placeholderString = "Search"
+            item.searchField.sendsWholeSearchString = false
+            item.searchField.sendsSearchStringImmediately = true
+            item.searchField.target = self
+            item.searchField.action = #selector(searchAction(_:))
+            return item
+
         case .undo:
             let item = NSToolbarItem(itemIdentifier: .undo)
             item.label = "Undo"
@@ -221,6 +231,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         [
             .toggleSidebar,
+            .search,
             .sidebarTrackingSeparator,
             .undo,
             .redo,
@@ -288,6 +299,10 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     }
 
     // MARK: - Actions
+
+    @objc private func searchAction(_ sender: NSSearchField) {
+        LibraryViewModel.shared.searchQuery = sender.stringValue
+    }
 
     @objc private func undoAction() {
         LibraryViewModel.shared.annotationStore.undo()
