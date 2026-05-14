@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- Library search: toolbar search field filters the sidebar by name, description, or tag (case-insensitive substring match).
+
 ## [1.6.1] - 2026-05-11
 
 Maintenance release — no user-facing app changes. Establishes the open-source project scaffolding for the public GitHub repository: Code of Conduct, support documentation, issue and pull request templates, GitHub Actions build check, and Dependabot.

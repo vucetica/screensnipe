@@ -27,6 +27,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screensnipe). Open source
 - **Persistent library**: All captures auto-saved to `~/Pictures/ScreenSnipe/` (configurable location)
 - **Library browser**: NavigationSplitView sidebar with embedded editor and video player
 - **Multi-selection**: Cmd/Shift+Click to select multiple items in the sidebar
+- **Search**: Toolbar search field filters the sidebar by name, description, or tag (case-insensitive substring match)
 - **Stitch Together**: Combine multiple screenshots and recordings into a single video with configurable pauses and image durations, drag-to-reorder, and automatic letterboxing
 - **Auto-save**: Annotations persist automatically on edit (300ms debounce)
 

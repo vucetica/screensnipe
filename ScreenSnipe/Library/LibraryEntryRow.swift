@@ -3,13 +3,6 @@ import SwiftUI
 struct LibraryEntryRow: View {
     let entry: LibraryEntry
 
-    private static let dateFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateStyle = .medium
-        f.timeStyle = .short
-        return f
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -18,7 +11,7 @@ struct LibraryEntryRow: View {
                     .cornerRadius(4)
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.name ?? Self.dateFormatter.string(from: entry.captureDate))
+                    Text(entry.name ?? LibraryViewModel.rowDisplayDate(for: entry))
                         .font(.caption)
                         .lineLimit(1)
 

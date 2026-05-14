@@ -10,6 +10,7 @@ final class LibraryViewModel: ObservableObject {
     @Published var selectedEntryID: String?
     @Published var activeTool: EditorTool = .selection
     @Published var showInspector = true
+    @Published var searchQuery: String = ""
     var selectedImage: NSImage?
     var selectedVideoURL: URL?
     var currentToolHandler: ToolHandler?
@@ -74,7 +75,17 @@ final class LibraryViewModel: ObservableObject {
     }
 
     var entries: [LibraryEntry] {
-        LibraryManager.shared.entries
+        let all = LibraryManager.shared.entries
+        let query = searchQuery.trimmingCharacters(in: .whitespaces)
+        guard !query.isEmpty else { return all }
+        return all.filter { entry in
+            let name = entry.metadata.name ?? Self.defaultName(for: entry)
+            if name.localizedCaseInsensitiveContains(query) { return true }
+            if Self.rowDisplayDate(for: entry).localizedCaseInsensitiveContains(query) { return true }
+            if let description = entry.metadata.description,
+               description.localizedCaseInsensitiveContains(query) { return true }
+            return entry.metadata.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     private static let exportDateFormatter: DateFormatter = {
@@ -83,14 +94,30 @@ final class LibraryViewModel: ObservableObject {
         return f
     }()
 
+    private static let rowDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .short
+        return f
+    }()
+
+    static func defaultName(for entry: LibraryEntry) -> String {
+        let typePrefix = entry.mediaType == .image ? "Screenshot" : "Recording"
+        let timestamp = exportDateFormatter.string(from: entry.captureDate)
+        return "\(typePrefix) \(timestamp)"
+    }
+
+    /// Date string shown in the library sidebar row when an entry has no custom name
+    /// (e.g. "May 13, 2026 at 3:42 PM"). Kept here so search and rendering stay in sync.
+    static func rowDisplayDate(for entry: LibraryEntry) -> String {
+        rowDateFormatter.string(from: entry.captureDate)
+    }
+
     /// Returns the export filename (without extension) for the currently selected entry.
     var selectedExportName: String? {
         guard let id = selectedEntryID,
               let entry = LibraryManager.shared.entries.first(where: { $0.id == id }) else { return nil }
-        if let name = entry.name { return name }
-        let typePrefix = entry.mediaType == .image ? "Screenshot" : "Recording"
-        let timestamp = Self.exportDateFormatter.string(from: entry.captureDate)
-        return "\(typePrefix) \(timestamp)"
+        return entry.name ?? Self.defaultName(for: entry)
     }
 
     func refreshLibrary() {
@@ -234,3 +261,4 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 }
+
