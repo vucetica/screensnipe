@@ -19,6 +19,19 @@ final class CaptureCoordinator: ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var isCountingDown = false
 
+    /// True while a capture or recording flow is actively in progress and a new one
+    /// must not be started. `.editing` is intentionally excluded: it's the post-capture
+    /// state (the editor/library is open) and starting a fresh capture from there is fine.
+    var isBusy: Bool {
+        if isCountingDown { return true }
+        switch state {
+        case .selectingRegion, .selectingWindow, .capturing, .recording:
+            return true
+        case .idle, .editing:
+            return false
+        }
+    }
+
     private let captureService = ScreenCaptureService()
     let videoService = VideoRecordingService()
     private var regionSelectionWindow: RegionSelectionWindow?
@@ -45,6 +58,7 @@ final class CaptureCoordinator: ObservableObject {
     // MARK: - Public API
 
     func startCapture(mode: CaptureMode) {
+        guard !isBusy else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -233,6 +247,7 @@ final class CaptureCoordinator: ObservableObject {
     // MARK: - Video Recording
 
     func startFullScreenRecording() {
+        guard !isBusy else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -241,6 +256,7 @@ final class CaptureCoordinator: ObservableObject {
     }
 
     func startRegionRecording() {
+        guard !isBusy else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -271,6 +287,7 @@ final class CaptureCoordinator: ObservableObject {
     }
 
     func startWindowRecording() {
+        guard !isBusy else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
