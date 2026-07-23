@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.7.2] - 2026-07-23
+
+### Added
+- GitHub Releases now include a signed, notarized DMG (and ZIP) of the app for direct download outside the App Store.
+
+### Fixed
+- Starting a capture while another capture is already in progress no longer causes issues.
+
+## [1.7.1] - 2026-07-23
+
+Maintenance release — build and release automation only, no user-facing changes.
+
 ## [1.7.0] - 2026-05-13
 
 ### Added
@@ -43,7 +55,9 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.7.2...HEAD
+[1.7.2]: https://github.com/vucetica/screensnipe/compare/v1.7.1...v1.7.2
+[1.7.1]: https://github.com/vucetica/screensnipe/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/vucetica/screensnipe/compare/v1.6.1...v1.7.0
 [1.6.1]: https://github.com/vucetica/screensnipe/compare/v1.6.0...v1.6.1
 [1.6.0]: https://github.com/vucetica/screensnipe/releases/tag/v1.6.0
