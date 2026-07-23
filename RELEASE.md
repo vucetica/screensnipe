@@ -19,9 +19,12 @@ Two GitHub Actions workflows live in `.github/workflows/`:
 
 - **`notarized-app`** — runs on **every push to `main`** (and tags/dispatch).
   Archives in Release configuration, signs with the **Developer ID Application**
-  certificate, notarizes with Apple, staples the ticket, and uploads
-  `ScreenSnipe.zip` as a workflow artifact (kept 30 days). Anyone can download
-  and run this build.
+  certificate, notarizes with Apple, staples the ticket, then packs the app two
+  ways: `ScreenSnipe.zip` and a signed, notarized, stapled `ScreenSnipe.dmg`
+  (the standard macOS download format). Both are uploaded as workflow artifacts
+  (kept 30 days); on version tags (`vX.Y.Z`) they're also attached to the
+  GitHub Release for that tag (creating the release with auto-generated notes
+  if needed). Anyone can download and run these builds.
 - **`app-store`** — runs **only on a `vX.Y.Z` tag or manual dispatch**.
   Archives with the **Apple Distribution** certificate, exports the Mac App
   Store `.pkg`, and uploads it to App Store Connect. You then submit for

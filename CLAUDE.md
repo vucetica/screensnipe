@@ -35,7 +35,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
    git tag -a vX.Y.0 -m "vX.Y.0 — <one-line summary>"
    git push origin vX.Y.0
    ```
-5. **CI builds automatically**: pushing the tag runs `release.yml` — the `app-store` job exports the signed `.pkg` and uploads it to App Store Connect, and the `notarized-app` job produces a notarized `.app` zip as a workflow artifact (every push to `main` also produces this artifact). Submit for review manually in App Store Connect; Apple review typically takes ~24h.
+5. **CI builds automatically**: pushing the tag runs `release.yml` — the `app-store` job exports the signed `.pkg` and uploads it to App Store Connect, and the `notarized-app` job produces a notarized `.app` packed as both a `.zip` and a signed/notarized `.dmg`. Both are workflow artifacts on every run, and on tags they're also attached to the GitHub Release. Submit for review manually in App Store Connect; Apple review typically takes ~24h.
 6. **CI/CD setup, secrets, and certificate renewal** are documented in [RELEASE.md](RELEASE.md).
 
 ## Design Philosophy
