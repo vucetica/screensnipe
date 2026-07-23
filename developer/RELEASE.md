@@ -40,7 +40,7 @@ Configured in **GitHub → repo Settings → Secrets and variables → Actions**
 
 | Variable | What it is |
 |---|---|
-| `TEAM_ID` | Apple Developer team ID (e.g. `QP3GV5Z4XY`). The signing certificates must belong to this team — a cert from a different team (e.g. a personal team) fails the archive with "No signing certificate ... matching team ID". |
+| `TEAM_ID` | Apple Developer team ID (e.g. `8594MRU6A8`). The signing certificates must belong to this team — a cert from a different team fails the archive with "No signing certificate ... matching team ID". |
 
 ### Shared secrets
 
@@ -90,7 +90,7 @@ Configured in **GitHub → repo Settings → Secrets and variables → Actions**
 ### 2. Developer ID Application certificate (`DEVID_CERT_*`)
 
 1. Open **Keychain Access** → **login** keychain → **My Certificates** and find
-   `Developer ID Application: <Name> (QP3GV5Z4XY)`. If missing, create it via
+   `Developer ID Application: <Name> (8594MRU6A8)`. If missing, create it via
    **Xcode → Settings → Accounts → <team> → Manage Certificates → + →
    Developer ID Application** (only the Account Holder can create these in an
    organization team).

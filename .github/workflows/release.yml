@@ -33,7 +33,7 @@ name: Build, Notarize & Release
 #
 # Required repository variables (same page, Variables tab):
 #
-#   TEAM_ID                   Apple Developer team ID (e.g. QP3GV5Z4XY); the
+#   TEAM_ID                   Apple Developer team ID (e.g. 8594MRU6A8); the
 #                             signing certificates must belong to this team
 #
 # To base64-encode a file on macOS:  base64 -i file.p12 | pbcopy
