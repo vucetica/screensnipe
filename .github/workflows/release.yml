@@ -31,6 +31,11 @@ name: Build, Notarize & Release
 #   INSTALLER_CERT_PASSWORD   password for that .p12
 #   PROVISIONING_PROFILE_BASE64   base64 of the Mac App Store .provisionprofile
 #
+# Required repository variables (same page, Variables tab):
+#
+#   TEAM_ID                   Apple Developer team ID (e.g. QP3GV5Z4XY); the
+#                             signing certificates must belong to this team
+#
 # To base64-encode a file on macOS:  base64 -i file.p12 | pbcopy
 
 on:
@@ -44,7 +49,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  TEAM_ID: QP3GV5Z4XY
+  TEAM_ID: ${{ vars.TEAM_ID }}
   BUNDLE_ID: app.screensnipe.app
   PRODUCT_NAME: Screen Snipe
 
