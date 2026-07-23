@@ -35,8 +35,8 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
    git tag -a vX.Y.0 -m "vX.Y.0 — <one-line summary>"
    git push origin vX.Y.0
    ```
-5. **App Store submission**: Xcode → Product → Archive → Distribute App → App Store Connect. Apple review typically takes ~24h.
-6. **No signed GitHub binaries** are published — the tag itself is the release marker. Distribution is MAS-only.
+5. **CI builds automatically**: pushing the tag runs `release.yml` — the `app-store` job exports the signed `.pkg` and uploads it to App Store Connect, and the `notarized-app` job produces a notarized `.app` zip as a workflow artifact (every push to `main` also produces this artifact). Submit for review manually in App Store Connect; Apple review typically takes ~24h.
+6. **CI/CD setup, secrets, and certificate renewal** are documented in [RELEASE.md](RELEASE.md).
 
 ## Design Philosophy
 
