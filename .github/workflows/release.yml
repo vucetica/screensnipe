@@ -308,33 +308,31 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ github.run_number }}"
           test -d "$RUNNER_TEMP/ScreenSnipe.xcarchive"
 
-      - name: Export signed .pkg for the App Store
+      # Note: xcodebuild -exportArchive (method app-store) requires the installer
+      # certificate to be embedded in the provisioning profile, but the Apple
+      # Developer portal UI can't create such profiles (only Xcode-managed
+      # profiles embed both certs). App Store Connect does NOT require this —
+      # it only needs the .app signed with the distribution cert + profile and
+      # the .pkg signed with the installer cert. So we package the already-
+      # signed .app from the archive directly with productbuild instead.
+      - name: Build signed .pkg for the App Store
         run: |
           set -euo pipefail
-          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>method</key>
-            <string>app-store</string>
-            <key>teamID</key>
-            <string>$TEAM_ID</string>
-            <key>signingStyle</key>
-            <string>manual</string>
-            <key>provisioningProfiles</key>
-            <dict>
-              <key>$BUNDLE_ID</key>
-              <string>$PROFILE_NAME</string>
-            </dict>
-          </dict>
-          </plist>
-          EOF
+          APP="$RUNNER_TEMP/ScreenSnipe.xcarchive/Products/Applications/${PRODUCT_NAME}.app"
+          test -d "$APP"
+          test -f "$APP/Contents/embedded.provisionprofile"
 
-          xcodebuild -exportArchive \
-            -archivePath "$RUNNER_TEMP/ScreenSnipe.xcarchive" \
-            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
-            -exportPath "$RUNNER_TEMP/export"
+          INSTALLER_IDENTITY=$(security find-identity -v "$RUNNER_TEMP/build.keychain-db" \
+            | grep -oE '"(3rd Party Mac Developer Installer|Mac Installer Distribution)[^"]*"' \
+            | head -1 | tr -d '"')
+          test -n "$INSTALLER_IDENTITY"
+          echo "Signing pkg with: $INSTALLER_IDENTITY"
+
+          mkdir -p "$RUNNER_TEMP/export"
+          productbuild \
+            --component "$APP" /Applications \
+            --sign "$INSTALLER_IDENTITY" \
+            "$RUNNER_TEMP/export/${PRODUCT_NAME}.pkg"
           ls -la "$RUNNER_TEMP/export"
 
       - name: Upload to App Store Connect

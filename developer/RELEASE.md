@@ -26,9 +26,10 @@ Two GitHub Actions workflows live in `.github/workflows/`:
   GitHub Release for that tag (creating the release with auto-generated notes
   if needed). Anyone can download and run these builds.
 - **`app-store`** — runs **only on a `vX.Y.Z` tag or manual dispatch**.
-  Archives with the **Apple Distribution** certificate, exports the Mac App
-  Store `.pkg`, and uploads it to App Store Connect. You then submit for
-  review manually in App Store Connect.
+  Archives with the **Apple Distribution** certificate, packages the signed
+  app into a `.pkg` with `productbuild` (signed with the **Mac Installer
+  Distribution** certificate), and uploads it to App Store Connect. You then
+  submit for review manually in App Store Connect.
 
 You can watch runs and download artifacts from the repo's **Actions** tab.
 
@@ -154,6 +155,12 @@ Renewal procedure for any certificate:
   secrets (`DIST_*`, `INSTALLER_*`, `PROVISIONING_PROFILE_BASE64`) are missing
   or expired. The `app-store` job is independent; the notarized artifact is
   unaffected.
+- **"Provisioning profile has platforms visionOS, watchOS, and iOS"** — the
+  uploaded profile is an iOS App Store profile. Create a **Mac App Store**
+  profile (Mac section of the portal's distribution types) instead.
+- **`productbuild` can't find the installer identity** — the
+  `INSTALLER_CERT_BASE64` secret holds the wrong cert (e.g. the application
+  distribution cert). Export the "Mac Installer Distribution" cert + key.
 - **Expired certificate mid-cycle** — update the secret; no code or workflow
   changes are needed. CI picks up the new secret on the next run.
 
