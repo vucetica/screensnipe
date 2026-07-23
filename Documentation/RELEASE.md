@@ -4,7 +4,7 @@ This document covers how Screen Snipe's automated builds work, how the GitHub
 secrets are set up, and what to do when Apple certificates expire.
 
 For the release process itself (version bump, changelog, PR, tagging), see the
-**Releasing** section in [CLAUDE.md](CLAUDE.md).
+**Releasing** section in [CLAUDE.md](../CLAUDE.md).
 
 ## Overview
 
