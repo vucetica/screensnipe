@@ -9,11 +9,17 @@ struct CaptureMetadata: Codable, Sendable, Equatable {
     var name: String?
     var description: String?
     var tags: [String] = []
+    /// Public iCloud link published for this capture, if any.
+    var shareURL: URL?
+    /// Date after which the published iCloud link stops working (system-determined).
+    var shareExpiration: Date?
 
     enum CodingKeys: String, CodingKey {
         case name
         case description
         case tags
+        case shareURL
+        case shareExpiration
     }
 
     init(name: String? = nil, description: String? = nil, tags: [String] = []) {
@@ -27,6 +33,8 @@ struct CaptureMetadata: Codable, Sendable, Equatable {
         self.name = try container.decodeIfPresent(String.self, forKey: .name)
         self.description = try container.decodeIfPresent(String.self, forKey: .description)
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
+        self.shareURL = try container.decodeIfPresent(URL.self, forKey: .shareURL)
+        self.shareExpiration = try container.decodeIfPresent(Date.self, forKey: .shareExpiration)
     }
 }
 

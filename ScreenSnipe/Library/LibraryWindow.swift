@@ -9,6 +9,11 @@ enum LibraryWindow {
         window != nil
     }
 
+    /// The library window, if open — for parenting toasts and alert sheets.
+    static var current: NSWindow? {
+        window
+    }
+
     static func show(selecting entry: LibraryEntry? = nil) {
         if let existing = window {
             if let entry {

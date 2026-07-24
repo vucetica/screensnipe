@@ -50,6 +50,12 @@ targets:
         Debug:
           CODE_SIGN_ENTITLEMENTS: ScreenSnipe/ScreenSnipeDebug.entitlements
           PRODUCT_BUNDLE_IDENTIFIER: app.screensnipe.app.debug
+          # Automatic signing so Xcode manages the development profile (needed for
+          # the iCloud entitlement); generic identity so the current dev cert is
+          # picked instead of a pinned, since-renewed certificate name. Release
+          # signing is fully overridden by CI (release.yml) and unaffected.
+          CODE_SIGN_STYLE: Automatic
+          CODE_SIGN_IDENTITY: "Apple Development"
         Release:
           CODE_SIGN_ENTITLEMENTS: ScreenSnipe/ScreenSnipe.entitlements
     dependencies:

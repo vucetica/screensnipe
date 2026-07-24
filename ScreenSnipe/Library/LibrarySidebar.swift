@@ -29,6 +29,15 @@ struct LibrarySidebar: View {
                         NSWorkspace.shared.activateFileViewerSelecting([entry.mediaURL])
                     }
                     Divider()
+                    Button("Copy iCloud Link") {
+                        viewModel.copyICloudLink(for: entry)
+                    }
+                    if entry.metadata.shareURL != nil {
+                        Button("Stop Sharing") {
+                            viewModel.stopSharing(entry)
+                        }
+                    }
+                    Divider()
                 }
                 if !selectedIDs.isEmpty {
                     Button("Delete", role: .destructive) {

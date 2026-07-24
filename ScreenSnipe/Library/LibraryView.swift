@@ -20,6 +20,9 @@ struct LibraryView: View {
         .sheet(isPresented: $viewModel.showStitchProgress) {
             StitchProgressView(viewModel: viewModel)
         }
+        .sheet(isPresented: $viewModel.showShareLinkProgress) {
+            ShareLinkProgressView(viewModel: viewModel)
+        }
         .alert("Stitch Failed", isPresented: Binding(
             get: { viewModel.stitchError != nil },
             set: { if !$0 { viewModel.stitchError = nil } }

@@ -12,6 +12,7 @@ private extension NSToolbarItem.Identifier {
     static let save = NSToolbarItem.Identifier("app.screensnipe.toolbar.save")
     static let copy = NSToolbarItem.Identifier("app.screensnipe.toolbar.copy")
     static let share = NSToolbarItem.Identifier("app.screensnipe.toolbar.share")
+    static let copyLink = NSToolbarItem.Identifier("app.screensnipe.toolbar.copyLink")
     static let inspector = NSToolbarItem.Identifier("app.screensnipe.toolbar.inspector")
 }
 
@@ -28,6 +29,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     private weak var copyItem: NSToolbarItem?
     private weak var textCaptureItem: NSToolbarItem?
     private weak var shareItem: NSToolbarItem?
+    private weak var copyLinkItem: NSToolbarItem?
     private weak var inspectorItem: NSToolbarItem?
 
     override init() {
@@ -89,6 +91,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
                 self?.copyItem?.isEnabled = hasImage
                 self?.textCaptureItem?.isEnabled = hasImage
                 self?.shareItem?.isEnabled = hasMedia
+                self?.copyLinkItem?.isEnabled = hasMedia
             }
             .store(in: &cancellables)
     }
@@ -213,6 +216,17 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             shareItem = item
             return item
 
+        case .copyLink:
+            let item = NSToolbarItem(itemIdentifier: .copyLink)
+            item.label = "Copy Link"
+            item.toolTip = "Copy a public iCloud link"
+            item.image = NSImage(systemSymbolName: "link.icloud", accessibilityDescription: "Copy iCloud Link")
+            item.target = self
+            item.action = #selector(copyLinkAction)
+            item.isEnabled = false
+            copyLinkItem = item
+            return item
+
         case .inspector:
             let item = NSToolbarItem(itemIdentifier: .inspector)
             item.label = "Inspector"
@@ -243,6 +257,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             .save,
             .copy,
             .share,
+            .copyLink,
             .inspectorTrackingSeparator,
             .inspector,
         ]
@@ -268,7 +283,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             return hasImage && store.selectedID != nil
         case .toolPicker, .cropPicker:
             return hasImage
-        case .save, .share:
+        case .save, .share, .copyLink:
             return hasImage || viewModel.selectedVideoURL != nil
         case .copy, .textCapture:
             return hasImage
@@ -374,6 +389,10 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
 
     @objc private func inspectorAction() {
         LibraryViewModel.shared.showInspector.toggle()
+    }
+
+    @objc private func copyLinkAction() {
+        LibraryViewModel.shared.copyICloudLinkForSelection()
     }
 
     @objc private func shareAction(_ sender: NSButton) {

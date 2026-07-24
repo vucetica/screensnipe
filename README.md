@@ -35,6 +35,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screensnipe). Open source
 - **Save**: Export flattened image as PNG/JPEG
 - **Copy to clipboard**: One-click copy with toast confirmation
 - **Share**: System share sheet integration
+- **Copy iCloud Link**: Publish a capture as a public iCloud download link anyone can open in a browser; revoke via Stop Sharing (requires iCloud provisioning, see [developer/ICLOUD-SHARING.md](developer/ICLOUD-SHARING.md))
 
 ### Preferences
 - **Configurable shortcuts**: All capture and recording shortcuts customizable with conflict detection

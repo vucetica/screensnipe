@@ -8,5 +8,21 @@
 	<true/>
 	<key>com.apple.security.files.user-selected.read-write</key>
 	<true/>
+	<!-- iCloud link sharing (see developer/ICLOUD-SHARING.md). Uncomment once the
+	     iCloud container is registered and provisioning profiles are regenerated;
+	     building with these keys fails until the profiles include the iCloud feature.
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.app.screensnipe.app</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.app.screensnipe.app</string>
+	</array>
+	-->
 </dict>
 </plist>

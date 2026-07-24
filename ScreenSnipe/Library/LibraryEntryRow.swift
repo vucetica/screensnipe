@@ -22,6 +22,12 @@ struct LibraryEntryRow: View {
                         Text(entry.mediaType == .image ? "Screenshot" : "Recording")
                             .font(.caption2)
                             .foregroundStyle(.secondary)
+                        if entry.metadata.shareURL != nil {
+                            Image(systemName: "link.icloud")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .help("Shared via iCloud link. Right-click to copy the link or stop sharing.")
+                        }
                     }
                 }
             }
