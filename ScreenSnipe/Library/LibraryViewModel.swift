@@ -82,14 +82,48 @@ final class LibraryViewModel: ObservableObject {
         let all = LibraryManager.shared.entries
         let query = searchQuery.trimmingCharacters(in: .whitespaces)
         guard !query.isEmpty else { return all }
+        let (filters, text) = Self.parseSearchQuery(query)
         return all.filter { entry in
+            guard filters.allSatisfy({ $0.matches(entry) }) else { return false }
+            guard !text.isEmpty else { return true }
             let name = entry.metadata.name ?? Self.defaultName(for: entry)
-            if name.localizedCaseInsensitiveContains(query) { return true }
-            if Self.rowDisplayDate(for: entry).localizedCaseInsensitiveContains(query) { return true }
+            if name.localizedCaseInsensitiveContains(text) { return true }
+            if Self.rowDisplayDate(for: entry).localizedCaseInsensitiveContains(text) { return true }
             if let description = entry.metadata.description,
-               description.localizedCaseInsensitiveContains(query) { return true }
-            return entry.metadata.tags.contains { $0.localizedCaseInsensitiveContains(query) }
+               description.localizedCaseInsensitiveContains(text) { return true }
+            return entry.metadata.tags.contains { $0.localizedCaseInsensitiveContains(text) }
         }
+    }
+
+    /// A structured `is:` filter parsed from the search query.
+    enum SearchFilter: String, CaseIterable {
+        case shared
+        case image
+        case video
+
+        func matches(_ entry: LibraryEntry) -> Bool {
+            switch self {
+            case .shared: entry.metadata.shareURL != nil
+            case .image: entry.mediaType == .image
+            case .video: entry.mediaType == .video
+            }
+        }
+    }
+
+    /// Splits a raw query into `is:` filters and the remaining free text.
+    /// Unrecognized `is:` values stay in the free text so they still match literally.
+    static func parseSearchQuery(_ query: String) -> (filters: [SearchFilter], text: String) {
+        var filters: [SearchFilter] = []
+        var textTokens: [String] = []
+        for token in query.split(separator: " ") {
+            let lowered = token.lowercased()
+            if lowered.hasPrefix("is:"), let filter = SearchFilter(rawValue: String(lowered.dropFirst(3))) {
+                filters.append(filter)
+            } else {
+                textTokens.append(String(token))
+            }
+        }
+        return (filters, textTokens.joined(separator: " "))
     }
 
     private static let exportDateFormatter: DateFormatter = {

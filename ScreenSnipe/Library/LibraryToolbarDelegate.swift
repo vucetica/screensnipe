@@ -31,6 +31,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     private weak var shareItem: NSToolbarItem?
     private weak var copyLinkItem: NSToolbarItem?
     private weak var inspectorItem: NSToolbarItem?
+    private weak var searchItem: NSSearchToolbarItem?
 
     override init() {
         super.init()
@@ -103,10 +104,29 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
         case .search:
             let item = NSSearchToolbarItem(itemIdentifier: .search)
             item.searchField.placeholderString = "Search"
+            item.searchField.toolTip = "Search by name, description, tag, or date.\nFilter with is:shared, is:image, or is:video."
             item.searchField.sendsWholeSearchString = false
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.target = self
             item.searchField.action = #selector(searchAction(_:))
+
+            // Magnifier dropdown offering the is: filters, so the syntax is
+            // discoverable without reading docs.
+            let filterMenu = NSMenu()
+            let filters = [
+                ("Shared (is:shared)", "is:shared"),
+                ("Screenshots (is:image)", "is:image"),
+                ("Recordings (is:video)", "is:video"),
+            ]
+            for (title, token) in filters {
+                let menuItem = NSMenuItem(title: title, action: #selector(searchFilterAction(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = token
+                filterMenu.addItem(menuItem)
+            }
+            item.searchField.searchMenuTemplate = filterMenu
+
+            searchItem = item
             return item
 
         case .undo:
@@ -317,6 +337,16 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
 
     @objc private func searchAction(_ sender: NSSearchField) {
         LibraryViewModel.shared.searchQuery = sender.stringValue
+    }
+
+    @objc private func searchFilterAction(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? String else { return }
+        let viewModel = LibraryViewModel.shared
+        var query = viewModel.searchQuery
+        guard !query.localizedCaseInsensitiveContains(token) else { return }
+        query = query.isEmpty ? token : "\(token) \(query)"
+        viewModel.searchQuery = query
+        searchItem?.searchField.stringValue = query
     }
 
     @objc private func undoAction() {

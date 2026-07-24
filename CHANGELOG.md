@@ -8,6 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- Search filters: `is:shared`, `is:image`, and `is:video` narrow the library search to shared captures, screenshots, or recordings, and combine with free text. The filters are also available from the search field's magnifier dropdown.
 - Copy iCloud Link: publish a capture (annotated screenshot or recording) as a public iCloud download link that anyone can open in a browser, via the library toolbar or the sidebar context menu. Shared captures show a link badge in the sidebar, a toast confirms each copy (with a one-time explainer after the first share), and Stop Sharing revokes the link. Requires iCloud provisioning before it can be enabled; see developer/ICLOUD-SHARING.md.
 
 ## [1.7.2] - 2026-07-23
