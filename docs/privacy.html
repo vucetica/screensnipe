@@ -256,10 +256,10 @@
     <main class="content">
         <div class="container">
             <h1>Privacy Policy</h1>
-            <p class="last-updated">Last updated: February 21, 2026</p>
+            <p class="last-updated">Last updated: July 24, 2026</p>
 
             <h2>Overview</h2>
-            <p>Screen Snipe is designed with your privacy as a core principle. The app operates entirely on your Mac with no data collection, no analytics, no tracking, and no network connections.</p>
+            <p>Screen Snipe is designed with your privacy as a core principle. The app operates entirely on your Mac with no data collection, no analytics, and no tracking. The only network feature is optional iCloud link sharing, described below, which runs entirely through your own iCloud account and only when you explicitly trigger it.</p>
 
             <h2>Data collection</h2>
             <p>Screen Snipe does not collect, transmit, or store any personal data. Specifically:</p>
@@ -272,8 +272,18 @@
             </ul>
 
             <h2>Local data</h2>
-            <p>All screenshots, screen recordings, and annotations are saved locally on your Mac in a folder you choose (default: <code>~/Pictures/ScreenSnipe/</code>). This data never leaves your device.</p>
+            <p>All screenshots, screen recordings, and annotations are saved locally on your Mac in a folder you choose (default: <code>~/Pictures/ScreenSnipe/</code>). This data never leaves your device unless you explicitly share a capture (see iCloud link sharing below).</p>
             <p>App preferences (keyboard shortcuts, library location) are stored in the standard macOS user defaults on your device.</p>
+
+            <h2>iCloud link sharing (optional)</h2>
+            <p>Screen Snipe can share a capture as a public iCloud download link. This happens only when you explicitly choose "Copy iCloud Link" for a specific capture. When you do:</p>
+            <ul>
+                <li>A copy of that capture (the flattened screenshot or the recording file) is uploaded to your own iCloud account, into the app's iCloud container. It counts against your iCloud storage quota.</li>
+                <li>Apple's iCloud generates a public icloud.com download link. Anyone who has the link can download that file, so share it only with people you trust.</li>
+                <li>The link and its expiration date are stored locally alongside the capture. Links expire on a schedule chosen by Apple's system.</li>
+                <li>"Stop Sharing" deletes the uploaded copy from your iCloud, which invalidates the link.</li>
+            </ul>
+            <p>Shared captures go only to Apple's iCloud under your own Apple Account. The developer operates no servers and never has access to your captures, shared or not. Sharing requires being signed into iCloud with iCloud Drive enabled. Apple's handling of iCloud data is governed by <a href="https://www.apple.com/legal/privacy/" rel="noopener">Apple's Privacy Policy</a>.</p>
 
             <h2>Permissions</h2>
             <p>Screen Snipe requests the following macOS permissions, used solely for core functionality:</p>
@@ -284,7 +294,7 @@
             <p>These permissions are managed entirely by macOS and can be revoked at any time in System Settings &gt; Privacy &amp; Security.</p>
 
             <h2>Third-party services</h2>
-            <p>Screen Snipe does not integrate with any third-party services, SDKs, or APIs, and does not make any network requests.</p>
+            <p>Screen Snipe contains no third-party SDKs, analytics, or advertising frameworks. The only external service it talks to is Apple's iCloud, used solely for the optional link sharing described above. The app makes no other network requests.</p>
 
             <h2>Children's privacy</h2>
             <p>Screen Snipe does not knowingly collect any information from children. The app does not collect information from anyone.</p>
@@ -293,7 +303,7 @@
             <p>If this privacy policy is ever updated, the changes will be posted on this page with an updated date. Given that Screen Snipe collects no data, significant changes are not anticipated.</p>
 
             <h2>Contact</h2>
-            <p>If you have questions about this privacy policy, contact <a href="#" id="privacy-contact">support@screensnipe.app</a>.</p>
+            <p>If you have questions about this privacy policy, ask in <a href="https://github.com/vucetica/screensnipe/discussions" rel="noopener">GitHub Discussions</a>.</p>
         </div>
     </main>
 
@@ -303,25 +313,10 @@
             <nav>
                 <a href="https://github.com/vucetica/screensnipe" rel="noopener">GitHub</a>
                 <a href="https://github.com/vucetica/screensnipe/blob/main/LICENSE" rel="noopener">MIT License</a>
-                <a href="/privacy">Privacy</a>
-                <a href="#" id="contact-link">Contact</a>
+                <a href="https://github.com/vucetica/screensnipe/discussions" rel="noopener">Contact</a>
             </nav>
         </div>
     </footer>
 
-    <script>
-    function setupMailto(id) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        el.addEventListener('click', function(e) {
-            e.preventDefault();
-            var u = 'support';
-            var d = 'screensnipe.app';
-            window.location.href = 'mailto:' + u + '@' + d;
-        });
-    }
-    setupMailto('privacy-contact');
-    setupMailto('contact-link');
-    </script>
 </body>
 </html>

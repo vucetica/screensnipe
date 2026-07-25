@@ -4,7 +4,7 @@ A lightweight, native macOS app for capturing screenshots, recording your screen
 
 > Heads up: this app is mostly vibe-coded — built with heavy help from AI coding agents. I made it for my own use and figured others might find it useful too. Even with AI, getting a native macOS app to feel right takes real effort, so I'm sharing the result.
 
-Free on the [Mac App Store](https://apps.apple.com/app/screensnipe). Open source under the [MIT License](LICENSE). Website: [screensnipe.app](https://screensnipe.app).
+Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400). Open source under the [MIT License](LICENSE). Website: [screensnipe.app](https://screensnipe.app).
 
 ## Features
 

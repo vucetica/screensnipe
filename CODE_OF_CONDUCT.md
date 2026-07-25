@@ -36,9 +36,7 @@ This Code of Conduct applies in all project spaces — the GitHub repository (is
 
 ## Reporting
 
-If you experience or witness unacceptable behavior, please report it privately to:
-
-**support@screensnipe.app**
+If you experience or witness unacceptable behavior, please report it privately via [GitHub's private reporting form](https://github.com/vucetica/screensnipe/security/advisories/new) (visible only to the maintainer). For platform-level abuse, you can also use [GitHub's built-in reporting](https://docs.github.com/communities/maintaining-your-safety-on-github/reporting-abuse-or-spam).
 
 All reports will be reviewed promptly and confidentially. Maintainers are obligated to respect the privacy and security of the reporter.
 

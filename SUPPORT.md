@@ -16,12 +16,8 @@ Use [GitHub Discussions](https://github.com/vucetica/screensnipe/discussions). D
 
 ## App Store purchase or installation issues
 
-Email **support@screensnipe.app**. This is the right channel for refunds, billing, Family Sharing, and anything else the Mac App Store handles directly.
-
-## Other private support
-
-Email **support@screensnipe.app**. Replies usually go out within a few days.
+Refunds, billing, and Family Sharing are handled by Apple, not by this project. Use [Apple's Report a Problem](https://reportaproblem.apple.com/) for refunds and billing, or [Apple Support](https://support.apple.com/) for App Store issues. For installation questions about the app itself, open a [Discussion](https://github.com/vucetica/screensnipe/discussions).
 
 ## What's not supported
 
-ScreenSnipe is a free indie macOS app maintained in spare time. There's no SLA, and not every feature request will be accepted — but everything gets read.
+ScreenSnipe is a free indie macOS app maintained in spare time. There's no SLA and no email support, and not every feature request will be accepted, but everything gets read.
