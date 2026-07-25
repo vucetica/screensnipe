@@ -187,7 +187,14 @@ jobs:
           APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
           DMG="$RUNNER_TEMP/ScreenSnipe.dmg"
 
-          hdiutil create -volname "$PRODUCT_NAME" -srcfolder "$APP" -ov -format UDZO "$DMG"
+          # Stage the app next to an /Applications symlink so the mounted
+          # DMG offers the standard drag-to-install layout.
+          STAGING="$RUNNER_TEMP/dmg-staging"
+          mkdir -p "$STAGING"
+          cp -R "$APP" "$STAGING/"
+          ln -s /Applications "$STAGING/Applications"
+
+          hdiutil create -volname "$PRODUCT_NAME" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
           codesign --sign "Developer ID Application" --timestamp "$DMG"
 
           KEY_FILE="$RUNNER_TEMP/AuthKey.p8"
