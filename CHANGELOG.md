@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.1] - 2026-07-24
+
+### Fixed
+- iCloud link sharing now works in distributed builds (App Store and direct download). In 1.8.0 the feature shipped without the required iCloud provisioning, so it reported "container unavailable" outside development builds.
+
 ## [1.8.0] - 2026-07-24
 
 ### Added
@@ -67,7 +72,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.8.1...HEAD
+[1.8.1]: https://github.com/vucetica/screensnipe/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/vucetica/screensnipe/compare/v1.7.2...v1.8.0
 [1.7.2]: https://github.com/vucetica/screensnipe/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/vucetica/screensnipe/compare/v1.7.0...v1.7.1

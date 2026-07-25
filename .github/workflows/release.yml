@@ -23,6 +23,8 @@ name: Build, Notarize & Release
 #   # Developer ID notarized build (notarized-app job)
 #   DEVID_CERT_BASE64         base64 of the "Developer ID Application" cert+key (.p12)
 #   DEVID_CERT_PASSWORD       password used when exporting that .p12
+#   DEVID_PROFILE_BASE64      base64 of the Developer ID .provisionprofile (needed
+#                             because iCloud is an "advanced capability")
 #
 #   # Mac App Store build (app-store job)
 #   DIST_CERT_BASE64          base64 of the "Apple Distribution" cert+key (.p12)
@@ -100,6 +102,26 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
           security find-identity -v "$KEYCHAIN"
 
+      - name: Install Developer ID provisioning profile
+        env:
+          DEVID_PROFILE_BASE64: ${{ secrets.DEVID_PROFILE_BASE64 }}
+        run: |
+          set -euo pipefail
+          PROFILE="$RUNNER_TEMP/devid.provisionprofile"
+          echo "$DEVID_PROFILE_BASE64" | base64 --decode > "$PROFILE"
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+
+          PLIST="$RUNNER_TEMP/devid-profile.plist"
+          security cms -D -i "$PROFILE" > "$PLIST"
+          UUID=$(/usr/libexec/PlistBuddy -c "Print :UUID" "$PLIST")
+          NAME=$(/usr/libexec/PlistBuddy -c "Print :Name" "$PLIST")
+
+          cp "$PROFILE" "$PROFILES_DIR/$UUID.provisionprofile"
+          echo "DEVID_PROFILE_NAME=$NAME" >> "$GITHUB_ENV"
+          echo "Installed provisioning profile: $NAME ($UUID)"
+
       - name: Archive (Release, Developer ID)
         run: |
           set -euo pipefail
@@ -117,7 +139,7 @@ jobs:
             CODE_SIGN_STYLE=Manual \
             DEVELOPMENT_TEAM="$TEAM_ID" \
             CODE_SIGN_IDENTITY="Developer ID Application" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
+            PROVISIONING_PROFILE_SPECIFIER="$DEVID_PROFILE_NAME" \
             CURRENT_PROJECT_VERSION="$(( GITHUB_RUN_NUMBER + 40 ))"
           test -d "$RUNNER_TEMP/devid.xcarchive"
 
@@ -137,6 +159,11 @@ jobs:
             <string>manual</string>
             <key>signingCertificate</key>
             <string>Developer ID Application</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$BUNDLE_ID</key>
+              <string>$DEVID_PROFILE_NAME</string>
+            </dict>
           </dict>
           </plist>
           EOF

@@ -58,6 +58,7 @@ Configured in **GitHub → repo Settings → Secrets and variables → Actions**
 |---|---|
 | `DEVID_CERT_BASE64` | Base64 of the **Developer ID Application** certificate + private key, exported as `.p12`. |
 | `DEVID_CERT_PASSWORD` | Password set when exporting that `.p12`. |
+| `DEVID_PROFILE_BASE64` | Base64 of the **Developer ID** `.provisionprofile` for `app.screensnipe.app`. Required because the app uses iCloud, an ["advanced capability"](https://developer.apple.com/support/developer-id/) that Developer ID signing only permits with a profile. |
 
 ### Mac App Store build (`app-store` job — only needed for tag-triggered uploads)
 
@@ -129,6 +130,7 @@ the corresponding secret is updated.
 | Apple Distribution cert | ~1 year | Cannot upload new apps/updates to App Store Connect; existing App Store apps unaffected | Regenerate via Xcode → Manage Certificates, export `.p12`, update `DIST_CERT_BASE64` + `DIST_CERT_PASSWORD` |
 | Mac Installer Distribution cert | ~1 year | Same as above | Same as above, for `INSTALLER_CERT_*` |
 | Mac App Store provisioning profile | Tied to the distribution cert | App Store export fails | Regenerate the profile in the Developer portal, update `PROVISIONING_PROFILE_BASE64` |
+| Developer ID provisioning profile | Tied to the Developer ID cert | `notarized-app` archive fails | Regenerate the profile in the Developer portal, update `DEVID_PROFILE_BASE64` |
 | App Store Connect API key | No automatic expiry | Can be revoked/rotated manually | Generate a new Team Key, update `ASC_KEY_*` |
 | Apple Developer Program membership | Annual renewal | Certificates become invalid; apps removed from the App Store | Renew membership, then re-issue certs as needed |
 
