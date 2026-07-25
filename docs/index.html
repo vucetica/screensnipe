@@ -201,44 +201,8 @@
 
             /* Hero */
             .hero {
-                position: relative;
-                overflow: hidden;
-                padding: 72px 0 96px;
+                padding: 72px 0 48px;
                 text-align: center;
-            }
-
-            .blob {
-                position: absolute;
-                top: -240px;
-                left: 50%;
-                transform: translateX(-50%);
-                width: 900px;
-                height: 900px;
-                background:
-                    radial-gradient(
-                        circle at 30% 30%,
-                        rgba(59, 122, 237, 0.5),
-                        transparent 55%
-                    ),
-                    radial-gradient(
-                        circle at 70% 60%,
-                        rgba(147, 197, 253, 0.55),
-                        transparent 55%
-                    ),
-                    radial-gradient(
-                        circle at 50% 85%,
-                        rgba(255, 213, 128, 0.45),
-                        transparent 55%
-                    );
-                filter: blur(80px);
-                pointer-events: none;
-                z-index: 0;
-                opacity: 0.95;
-            }
-
-            .hero > .container {
-                position: relative;
-                z-index: 1;
             }
 
             .hero-pill {
@@ -355,7 +319,7 @@
 
             /* Features */
             .features {
-                padding: 56px 0 88px;
+                padding: 24px 0 88px;
             }
 
             .feature-grid {
@@ -496,13 +460,13 @@
 
             @media (max-width: 640px) {
                 .hero {
-                    padding: 48px 0 64px;
+                    padding: 48px 0 36px;
                 }
                 .feature-grid {
                     grid-template-columns: 1fr;
                 }
                 .features {
-                    padding: 32px 0 56px;
+                    padding: 16px 0 56px;
                 }
                 .oss {
                     padding-bottom: 64px;
@@ -520,11 +484,6 @@
                     flex-wrap: wrap;
                     justify-content: center;
                     gap: 16px;
-                }
-                .blob {
-                    width: 600px;
-                    height: 600px;
-                    top: -160px;
                 }
             }
         </style>
@@ -565,7 +524,6 @@
 
         <main>
             <section class="hero">
-                <div class="blob" aria-hidden="true"></div>
                 <div class="container">
                     <div class="hero-pill">
                         <span class="dot" aria-hidden="true"></span>
@@ -579,7 +537,7 @@
                     </p>
                     <div class="hero-actions" id="download">
                         <a
-                            href="https://apps.apple.com/app/screensnipe"
+                            href="https://apps.apple.com/app/screen-snipe/id6759236400"
                             class="btn btn-primary"
                         >
                             <svg
@@ -723,7 +681,79 @@
                                 </svg>
                             </div>
                             <h3>Library</h3>
-                            <p>A local, browsable history of every capture.</p>
+                            <p>
+                                Every capture saved locally. Organize with
+                                tags, search, and filters.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <path
+                                        d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"
+                                    />
+                                    <path
+                                        d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"
+                                    />
+                                </svg>
+                            </div>
+                            <h3>Share</h3>
+                            <p>
+                                Copy an iCloud link anyone can open in a
+                                browser. Stop sharing anytime.
+                            </p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <polyline points="4 7 4 4 20 4 20 7" />
+                                    <line x1="9" y1="20" x2="15" y2="20" />
+                                    <line x1="12" y1="4" x2="12" y2="20" />
+                                </svg>
+                            </div>
+                            <h3>Text recognition</h3>
+                            <p>Extract text from any capture with OCR.</p>
+                        </article>
+                        <article class="feature">
+                            <div class="feature-icon" aria-hidden="true">
+                                <svg
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    stroke-width="1.8"
+                                    stroke-linecap="round"
+                                    stroke-linejoin="round"
+                                >
+                                    <rect
+                                        x="2.5"
+                                        y="5"
+                                        width="19"
+                                        height="14"
+                                        rx="2"
+                                    />
+                                    <line x1="8" y1="5" x2="8" y2="19" />
+                                    <line x1="16" y1="5" x2="16" y2="19" />
+                                </svg>
+                            </div>
+                            <h3>Stitch Together</h3>
+                            <p>
+                                Combine screenshots and recordings into a
+                                single video.
+                            </p>
                         </article>
                         <article class="feature">
                             <div class="feature-icon" aria-hidden="true">
@@ -762,7 +792,10 @@
                                 </svg>
                             </div>
                             <h3>Private by default</h3>
-                            <p>No tracking, no cloud, no account.</p>
+                            <p>
+                                No tracking, no account. Nothing leaves your
+                                Mac unless you share it.
+                            </p>
                         </article>
                     </div>
                 </div>
@@ -815,8 +848,11 @@
                         rel="noopener"
                         >MIT License</a
                     >
-                    <a href="/privacy">Privacy</a>
-                    <a href="#" id="contact-link">Contact</a>
+                    <a
+                        href="https://github.com/vucetica/screensnipe/discussions"
+                        rel="noopener"
+                        >Contact</a
+                    >
                 </nav>
             </div>
         </footer>
@@ -838,16 +874,6 @@
                 "license": "https://opensource.org/licenses/MIT",
                 "codeRepository": "https://github.com/vucetica/screensnipe"
             }
-        </script>
-        <script>
-            document
-                .getElementById("contact-link")
-                .addEventListener("click", function (e) {
-                    e.preventDefault();
-                    var u = "support";
-                    var d = "screensnipe.app";
-                    window.location.href = "mailto:" + u + "@" + d;
-                });
         </script>
     </body>
 </html>

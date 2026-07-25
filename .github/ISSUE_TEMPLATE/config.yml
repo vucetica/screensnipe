@@ -5,7 +5,4 @@ contact_links:
     about: For "how do I…", ideas, and open-ended discussion, please use Discussions instead of opening an issue.
   - name: Security issue
     url: https://github.com/vucetica/screensnipe/blob/main/SECURITY.md
-    about: Please report security issues by email instead of opening a public issue. See SECURITY.md for details.
-  - name: Email support
-    url: mailto:support@screensnipe.app
-    about: For private support questions or App Store issues.
+    about: Please report security issues privately instead of opening a public issue. See SECURITY.md for details.
