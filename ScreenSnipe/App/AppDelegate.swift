@@ -34,6 +34,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     private static let hasLaunchedBeforeKey = "hasLaunchedBefore"
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Backstop for launches that bypass Launch Services (open -n, direct
+        // binary execution); Finder/Dock launches are already blocked by
+        // LSMultipleInstancesProhibited in Info.plist.
+        guard let bundleID = Bundle.main.bundleIdentifier else { return }
+        let isAlreadyRunning = NSRunningApplication
+            .runningApplications(withBundleIdentifier: bundleID)
+            .contains { $0.processIdentifier != ProcessInfo.processInfo.processIdentifier }
+        if isAlreadyRunning {
+            NSApp.terminate(nil)
+        }
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
         NSWindow.allowsAutomaticWindowTabbing = false
