@@ -7,9 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-07-24
+
 ### Added
 - Search filters: `is:shared`, `is:image`, and `is:video` narrow the library search to shared captures, screenshots, or recordings, and combine with free text. The filters are also available from the search field's magnifier dropdown.
 - Copy iCloud Link: publish a capture (annotated screenshot or recording) as a public iCloud download link that anyone can open in a browser, via the library toolbar or the sidebar context menu. Shared captures show a link badge in the sidebar, a toast confirms each copy (with a one-time explainer after the first share), and Stop Sharing revokes the link. Requires iCloud provisioning before it can be enabled; see developer/ICLOUD-SHARING.md.
+
+### Changed
+- The downloadable DMG now opens with the standard drag-to-install layout: the app next to an Applications folder shortcut.
+
+### Fixed
+- The app can no longer be launched multiple times; a second launch hands off to the already running instance and exits.
 
 ## [1.7.2] - 2026-07-23
 
@@ -59,7 +67,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.7.2...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/vucetica/screensnipe/compare/v1.7.2...v1.8.0
 [1.7.2]: https://github.com/vucetica/screensnipe/compare/v1.7.1...v1.7.2
 [1.7.1]: https://github.com/vucetica/screensnipe/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/vucetica/screensnipe/compare/v1.6.1...v1.7.0
