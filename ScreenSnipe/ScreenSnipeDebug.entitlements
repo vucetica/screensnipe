@@ -4,5 +4,19 @@
 <dict>
 	<key>com.apple.security.device.audio-input</key>
 	<true/>
+	<!-- iCloud link sharing (see developer/ICLOUD-SHARING.md). Debug uses automatic
+	     signing, so Xcode provisions these; build with -allowProvisioningUpdates. -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.app.screensnipe.app</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<key>com.apple.developer.ubiquity-container-identifiers</key>
+	<array>
+		<string>iCloud.app.screensnipe.app</string>
+	</array>
 </dict>
 </plist>

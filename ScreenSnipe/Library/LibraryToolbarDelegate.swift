@@ -12,6 +12,7 @@ private extension NSToolbarItem.Identifier {
     static let save = NSToolbarItem.Identifier("app.screensnipe.toolbar.save")
     static let copy = NSToolbarItem.Identifier("app.screensnipe.toolbar.copy")
     static let share = NSToolbarItem.Identifier("app.screensnipe.toolbar.share")
+    static let copyLink = NSToolbarItem.Identifier("app.screensnipe.toolbar.copyLink")
     static let inspector = NSToolbarItem.Identifier("app.screensnipe.toolbar.inspector")
 }
 
@@ -28,7 +29,9 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     private weak var copyItem: NSToolbarItem?
     private weak var textCaptureItem: NSToolbarItem?
     private weak var shareItem: NSToolbarItem?
+    private weak var copyLinkItem: NSToolbarItem?
     private weak var inspectorItem: NSToolbarItem?
+    private weak var searchItem: NSSearchToolbarItem?
 
     override init() {
         super.init()
@@ -89,6 +92,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
                 self?.copyItem?.isEnabled = hasImage
                 self?.textCaptureItem?.isEnabled = hasImage
                 self?.shareItem?.isEnabled = hasMedia
+                self?.copyLinkItem?.isEnabled = hasMedia
             }
             .store(in: &cancellables)
     }
@@ -100,10 +104,29 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
         case .search:
             let item = NSSearchToolbarItem(itemIdentifier: .search)
             item.searchField.placeholderString = "Search"
+            item.searchField.toolTip = "Search by name, description, tag, or date.\nFilter with is:shared, is:image, or is:video."
             item.searchField.sendsWholeSearchString = false
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.target = self
             item.searchField.action = #selector(searchAction(_:))
+
+            // Magnifier dropdown offering the is: filters, so the syntax is
+            // discoverable without reading docs.
+            let filterMenu = NSMenu()
+            let filters = [
+                ("Shared (is:shared)", "is:shared"),
+                ("Screenshots (is:image)", "is:image"),
+                ("Recordings (is:video)", "is:video"),
+            ]
+            for (title, token) in filters {
+                let menuItem = NSMenuItem(title: title, action: #selector(searchFilterAction(_:)), keyEquivalent: "")
+                menuItem.target = self
+                menuItem.representedObject = token
+                filterMenu.addItem(menuItem)
+            }
+            item.searchField.searchMenuTemplate = filterMenu
+
+            searchItem = item
             return item
 
         case .undo:
@@ -213,6 +236,17 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             shareItem = item
             return item
 
+        case .copyLink:
+            let item = NSToolbarItem(itemIdentifier: .copyLink)
+            item.label = "Copy Link"
+            item.toolTip = "Copy a public iCloud link"
+            item.image = NSImage(systemSymbolName: "link.icloud", accessibilityDescription: "Copy iCloud Link")
+            item.target = self
+            item.action = #selector(copyLinkAction)
+            item.isEnabled = false
+            copyLinkItem = item
+            return item
+
         case .inspector:
             let item = NSToolbarItem(itemIdentifier: .inspector)
             item.label = "Inspector"
@@ -243,6 +277,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             .save,
             .copy,
             .share,
+            .copyLink,
             .inspectorTrackingSeparator,
             .inspector,
         ]
@@ -268,7 +303,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             return hasImage && store.selectedID != nil
         case .toolPicker, .cropPicker:
             return hasImage
-        case .save, .share:
+        case .save, .share, .copyLink:
             return hasImage || viewModel.selectedVideoURL != nil
         case .copy, .textCapture:
             return hasImage
@@ -302,6 +337,16 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
 
     @objc private func searchAction(_ sender: NSSearchField) {
         LibraryViewModel.shared.searchQuery = sender.stringValue
+    }
+
+    @objc private func searchFilterAction(_ sender: NSMenuItem) {
+        guard let token = sender.representedObject as? String else { return }
+        let viewModel = LibraryViewModel.shared
+        var query = viewModel.searchQuery
+        guard !query.localizedCaseInsensitiveContains(token) else { return }
+        query = query.isEmpty ? token : "\(token) \(query)"
+        viewModel.searchQuery = query
+        searchItem?.searchField.stringValue = query
     }
 
     @objc private func undoAction() {
@@ -374,6 +419,10 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
 
     @objc private func inspectorAction() {
         LibraryViewModel.shared.showInspector.toggle()
+    }
+
+    @objc private func copyLinkAction() {
+        LibraryViewModel.shared.copyICloudLinkForSelection()
     }
 
     @objc private func shareAction(_ sender: NSButton) {

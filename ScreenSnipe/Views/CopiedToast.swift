@@ -4,8 +4,8 @@ import AppKit
 enum CopiedToast {
     private static var activePanel: NSPanel?
 
-    /// Show a brief "Copied!" overlay centered near the top of the given window.
-    static func show(in window: NSWindow?) {
+    /// Show a brief confirmation overlay centered near the top of the given window.
+    static func show(in window: NSWindow?, message: String = "Copied!") {
         guard let window else { return }
 
         // Remove any existing toast
@@ -17,7 +17,7 @@ enum CopiedToast {
         icon.contentTintColor = .white
         icon.frame = NSRect(x: 12, y: 0, width: 16, height: 16)
 
-        let label = NSTextField(labelWithString: "Copied!")
+        let label = NSTextField(labelWithString: message)
         label.font = .systemFont(ofSize: 13, weight: .medium)
         label.textColor = .white
         label.alignment = .center
