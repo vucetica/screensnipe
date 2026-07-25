@@ -2,7 +2,7 @@
 
 Sharing a capture via a public iCloud download link. Anyone with the link can download the file from icloud.com in any browser; the recipient needs no iCloud account and no app. There is no server component: files live only in the user's own iCloud, and storage counts against their quota. This is a deliberate privacy choice; no third-party infrastructure sees the captures.
 
-Status: implemented and validated end to end on a Debug build. Enabled in Debug; disabled in Release pending distribution provisioning (see "Remaining Manual Steps").
+Status: implemented and validated end to end on a Debug build. Enabled in both Debug and Release since 1.8.1 (the iCloud capability is on the `app.screensnipe.app` App ID and both distribution profiles include it).
 
 ## How It Works
 
@@ -47,13 +47,10 @@ Both `.entitlements` files carry the same keys (container IDs are independent of
 ```
 
 - **Debug: active and provisioned.** The Debug config uses automatic signing (`project.yml`). Building with `xcodebuild ... -configuration Debug -allowProvisioningUpdates -allowProvisioningDeviceRegistration` had Xcode register the container, enable the capability on `app.screensnipe.app.debug`, and mint a team provisioning profile.
-- **Release: keys commented out.** Release uses manual signing; building with the keys active fails with "requires a provisioning profile with the iCloud feature" until the distribution profiles include iCloud (verified empirically). Until then, Release builds show the "container unavailable" error if the feature is used.
-
-## Remaining Manual Steps (Release only)
-
-1. In the developer portal (team `8594MRU6A8`): enable the iCloud capability with container `iCloud.app.screensnipe.app` on the `app.screensnipe.app` App ID (the container itself already exists; Xcode registered it while provisioning Debug).
-2. Regenerate the Mac App Store and Developer ID provisioning profiles and update the CI secrets per [RELEASE.md](RELEASE.md). iCloud is an "advanced capability" per [Apple's Developer ID page](https://developer.apple.com/support/developer-id), so the Developer ID job (which currently archives with `PROVISIONING_PROFILE_SPECIFIER=""`) must embed a Developer ID profile.
-3. Uncomment the iCloud keys in `ScreenSnipe/ScreenSnipe.entitlements`.
+- **Release: active since 1.8.1.** Release uses manual signing, so the keys only build when the distribution profiles include the iCloud feature. That was set up as follows (relevant again if the App ID or profiles are ever recreated):
+  1. In the developer portal (team `8594MRU6A8`): the iCloud capability ("Include CloudKit support") with container `iCloud.app.screensnipe.app` was enabled on the `app.screensnipe.app` App ID.
+  2. The Mac App Store profile was regenerated (capability changes invalidate existing profiles) and a Developer ID profile was created — iCloud is an "advanced capability" per [Apple's Developer ID page](https://developer.apple.com/support/developer-id), so Developer ID signing needs a profile too. Both are stored as CI secrets (`PROVISIONING_PROFILE_BASE64`, `DEVID_PROFILE_BASE64`) per [RELEASE.md](RELEASE.md), and the `notarized-app` job archives with `PROVISIONING_PROFILE_SPECIFIER` pointing at the Developer ID profile.
+  3. The iCloud keys in `ScreenSnipe/ScreenSnipe.entitlements` were uncommented.
 
 ## Known Limitations
 
