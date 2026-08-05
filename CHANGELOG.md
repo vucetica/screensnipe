@@ -7,7 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.8.1] - 2026-07-24
+## [1.9.0] - 2026-08-05
+
+### Fixed
+- Microphone audio is recorded again in App Store and direct-download builds. Those builds run in the App Sandbox but were missing the audio-input entitlement, so the capture session ran and wrote a full-length microphone track containing nothing but silence. Recordings made since 1.6.0 have a silent microphone track for this reason; system audio was never affected.
+
+### Added
+- A recording that was set up to capture the microphone but received no audio from it now says so when it is saved, instead of leaving a silent track behind. Microphone setup failures are logged and reported the same way.
 
 ### Fixed
 - iCloud link sharing now works in distributed builds (App Store and direct download). In 1.8.0 the feature shipped without the required iCloud provisioning, so it reported "container unavailable" outside development builds.
@@ -72,7 +78,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.8.1...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.9.0...HEAD
+[1.9.0]: https://github.com/vucetica/screensnipe/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/vucetica/screensnipe/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/vucetica/screensnipe/compare/v1.7.2...v1.8.0
 [1.7.2]: https://github.com/vucetica/screensnipe/compare/v1.7.1...v1.7.2

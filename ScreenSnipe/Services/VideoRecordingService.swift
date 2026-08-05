@@ -21,6 +21,7 @@ final class VideoRecordingService: NSObject, ObservableObject {
         case writerFailedDuringRecording(String)
         case notRecording
         case microphoneAccessDenied
+        case microphoneSetupFailed(String)
 
         var errorDescription: String? {
             switch self {
@@ -29,6 +30,7 @@ final class VideoRecordingService: NSObject, ObservableObject {
             case .writerFailedDuringRecording(let msg): "Recording failed: \(msg)"
             case .notRecording: "No recording in progress."
             case .microphoneAccessDenied: "Microphone access was denied."
+            case .microphoneSetupFailed(let msg): "Microphone setup failed: \(msg)"
             }
         }
     }
@@ -36,6 +38,10 @@ final class VideoRecordingService: NSObject, ObservableObject {
     @Published private(set) var isRecording = false
     @Published private(set) var isPaused = false
     @Published var writerError: Error?
+
+    /// Set when microphone audio could not be captured. Survives `stopRecording()`
+    /// so the caller can surface it once the recording is saved; cleared on the next start.
+    @Published private(set) var micWarning: String?
 
     private var stream: SCStream?
     private var assetWriter: AVAssetWriter?
@@ -55,6 +61,7 @@ final class VideoRecordingService: NSObject, ObservableObject {
     // Microphone capture
     private var micCaptureSession: AVCaptureSession?
     private var micOutputDelegate: MicAudioOutputDelegate?
+    private var activeMicName: String?
 
     // All nonisolated(unsafe) vars below are accessed exclusively on videoQueue.
     // Main-actor methods dispatch to videoQueue to read/write them.
@@ -67,6 +74,13 @@ final class VideoRecordingService: NSObject, ObservableObject {
     // Mute flags — toggled via videoQueue dispatch, read on videoQueue
     private nonisolated(unsafe) var _isSystemAudioMuted = false
     private nonisolated(unsafe) var _isMicMuted = true
+
+    // Microphone diagnostics — accessed on videoQueue.
+    // A capture session that is denied the audio device still delivers buffers, they are
+    // just all zeros, so "session ran but never carried a non-zero sample" is the only
+    // way to notice that a recording lost its microphone audio.
+    private nonisolated(unsafe) var micSessionRan = false
+    private nonisolated(unsafe) var micHadSignal = false
 
     // Writer failure tracking — accessed on videoQueue
     private nonisolated(unsafe) var hasReportedWriterFailure = false
@@ -127,7 +141,10 @@ final class VideoRecordingService: NSObject, ObservableObject {
         videoQueue.sync {
             _isSystemAudioMuted = initialSystemMuted
             _isMicMuted = initialMicMuted
+            micSessionRan = false
+            micHadSignal = false
         }
+        micWarning = nil
 
         // Write directly to the library directory to avoid sandbox temp quota limits.
         // Falls back to NSTemporaryDirectory if the library folder isn't accessible.
@@ -221,7 +238,7 @@ final class VideoRecordingService: NSObject, ObservableObject {
     private func startMicCapture(device micDevice: AVCaptureDevice) async {
         let granted = await AVCaptureDevice.requestAccess(for: .audio)
         guard granted else {
-            print("Microphone access denied — recording without mic audio.")
+            reportMicFailure(RecordingError.microphoneAccessDenied)
             return
         }
 
@@ -229,12 +246,12 @@ final class VideoRecordingService: NSObject, ObservableObject {
         do {
             let deviceInput = try AVCaptureDeviceInput(device: micDevice)
             guard session.canAddInput(deviceInput) else {
-                print("Cannot add mic input to capture session.")
+                reportMicFailure(RecordingError.microphoneSetupFailed("Cannot add \(micDevice.localizedName) to the capture session."))
                 return
             }
             session.addInput(deviceInput)
         } catch {
-            print("Failed to create mic device input: \(error.localizedDescription)")
+            reportMicFailure(RecordingError.microphoneSetupFailed(error.localizedDescription))
             return
         }
 
@@ -243,7 +260,7 @@ final class VideoRecordingService: NSObject, ObservableObject {
         audioOutput.setSampleBufferDelegate(delegate, queue: micAudioQueue)
 
         guard session.canAddOutput(audioOutput) else {
-            print("Cannot add audio output to mic capture session.")
+            reportMicFailure(RecordingError.microphoneSetupFailed("Cannot add an audio output to the capture session."))
             return
         }
         session.addOutput(audioOutput)
@@ -251,6 +268,15 @@ final class VideoRecordingService: NSObject, ObservableObject {
         session.startRunning()
         micCaptureSession = session
         micOutputDelegate = delegate
+        activeMicName = micDevice.localizedName
+        videoQueue.async { [weak self] in self?.micSessionRan = true }
+    }
+
+    /// Logs a microphone setup failure and stores it for the caller to surface after the
+    /// recording is saved. Recording continues without microphone audio.
+    private func reportMicFailure(_ error: RecordingError) {
+        ErrorReporter.log(error, context: "Microphone capture")
+        micWarning = "\(error.localizedDescription) The recording was saved without microphone audio."
     }
 
     // MARK: - Mid-Recording Audio Control
@@ -271,8 +297,13 @@ final class VideoRecordingService: NSObject, ObservableObject {
             videoQueue.async { [weak self] in self?._isMicMuted = false }
             await startMicCapture(device: device)
         } else {
-            // "None" — keep session running so silent buffers maintain the timeline
-            videoQueue.async { [weak self] in self?._isMicMuted = true }
+            // "None" — keep session running so silent buffers maintain the timeline.
+            // Turning the mic off is deliberate, so it must not raise the silence warning.
+            activeMicName = nil
+            videoQueue.async { [weak self] in
+                self?._isMicMuted = true
+                self?.micSessionRan = false
+            }
         }
     }
 
@@ -340,6 +371,17 @@ final class VideoRecordingService: NSObject, ObservableObject {
             }
         }
 
+        // A mic session that ran for the whole recording without ever carrying a non-zero
+        // sample means the audio never reached us — the track is there but empty of sound.
+        let micState = videoQueue.sync { (ran: micSessionRan, hadSignal: micHadSignal) }
+        if micState.ran, !micState.hadSignal, micWarning == nil {
+            let name = activeMicName ?? "The selected microphone"
+            let error = RecordingError.microphoneSetupFailed("\(name) delivered no audio.")
+            ErrorReporter.log(error, context: "Microphone capture")
+            micWarning = "\(name) recorded only silence, so the recording has no microphone audio. Check that Screen Snipe is allowed to use the microphone in System Settings > Privacy & Security."
+        }
+        activeMicName = nil
+
         let finalDropped = droppedFrameCount
         let finalTotal = totalFrameCount
         print("[ScreenSnipe] Recording stopped — \(finalTotal) frames, \(finalDropped) dropped, writer status: \(writer.status.rawValue)")
@@ -358,6 +400,8 @@ final class VideoRecordingService: NSObject, ObservableObject {
         videoQueuePaused = false
         _isSystemAudioMuted = false
         _isMicMuted = true
+        micSessionRan = false
+        micHadSignal = false
 
         if writerFailed {
             throw RecordingError.writerFailedDuringRecording(writerErrorMsg ?? "Unknown error")
@@ -433,6 +477,8 @@ final class VideoRecordingService: NSObject, ObservableObject {
             let adjusted = self.adjustedBuffer(sampleBuffer)
             if self._isMicMuted {
                 self.silenceBuffer(adjusted)
+            } else if !self.micHadSignal, self.carriesSignal(adjusted) {
+                self.micHadSignal = true
             }
             if input.isReadyForMoreMediaData {
                 input.append(adjusted)
@@ -455,6 +501,22 @@ final class VideoRecordingService: NSObject, ObservableObject {
         print("[ScreenSnipe]   Output URL: \(url.path)")
         DispatchQueue.main.async { [weak self] in
             self?.writerError = RecordingError.writerFailedDuringRecording(errorMsg)
+        }
+    }
+
+    /// Returns true if the buffer holds anything other than digital silence.
+    /// A microphone the system refuses to open still delivers buffers, all zeroed, so this
+    /// distinguishes "a quiet room" (dither, never exactly zero) from "no audio at all".
+    /// Called on videoQueue only.
+    private nonisolated func carriesSignal(_ sampleBuffer: CMSampleBuffer) -> Bool {
+        guard let blockBuffer = sampleBuffer.dataBuffer else { return false }
+        var length = 0
+        var dataPointer: UnsafeMutablePointer<CChar>?
+        guard CMBlockBufferGetDataPointer(blockBuffer, atOffset: 0, lengthAtOffsetOut: nil, totalLengthOut: &length, dataPointerOut: &dataPointer) == noErr,
+              let dataPointer, length > 0 else { return false }
+        return dataPointer.withMemoryRebound(to: UInt8.self, capacity: length) { bytes in
+            for offset in 0..<length where bytes[offset] != 0 { return true }
+            return false
         }
     }
 
