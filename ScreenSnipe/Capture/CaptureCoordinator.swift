@@ -379,6 +379,9 @@ final class CaptureCoordinator: ObservableObject {
                 }
                 let entry = try LibraryManager.shared.saveVideo(from: fileURL)
                 LibraryWindow.show(selecting: entry)
+                if let micWarning = videoService.micWarning {
+                    showWarning(title: "No Microphone Audio", message: micWarning)
+                }
             } catch {
                 state = .idle
                 isRecording = false
@@ -447,6 +450,14 @@ final class CaptureCoordinator: ObservableObject {
         alert.messageText = "Capture Failed"
         alert.informativeText = error.localizedDescription
         alert.alertStyle = .critical
+        alert.runModal()
+    }
+
+    private func showWarning(title: String, message: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = message
+        alert.alertStyle = .warning
         alert.runModal()
     }
 }
