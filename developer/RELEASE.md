@@ -33,6 +33,65 @@ Two GitHub Actions workflows live in `.github/workflows/`:
 
 You can watch runs and download artifacts from the repo's **Actions** tab.
 
+## The DMG installer window
+
+The `.dmg` opens to a styled drag-to-install window: the app on the left, the
+`/Applications` alias on the right, and an annotated background behind them.
+
+| File | Purpose |
+|---|---|
+| `scripts/make-dmg.sh` | Builds the DMG from a `.app`. Used by CI and locally. |
+| `distribution/dmg/dmgbuild-settings.py` | Window geometry, icon positions, view options. |
+| `scripts/dmg-background.swift` | Draws the background artwork. |
+| `scripts/build-dmg-background.sh` | Renders the artwork to `distribution/dmg/background.tiff` (committed). |
+
+Layout is written straight into the volume's `.DS_Store` by
+[`dmgbuild`](https://dmgbuild.readthedocs.io/) rather than by driving Finder over
+AppleScript. GitHub runners are not authorized to send Apple events to Finder, so
+the AppleScript approach fails there with `-1743`; `dmgbuild` has no such
+dependency and produces the same result on any machine.
+
+### Testing the installer locally
+
+```bash
+pipx install dmgbuild            # one time
+
+xcodegen generate
+xcodebuild -project ScreenSnipe.xcodeproj -scheme ScreenSnipe \
+  -destination 'platform=macOS' -derivedDataPath build build
+
+scripts/make-dmg.sh "build/Build/Products/Debug/Screen Snipe.app" /tmp/test.dmg
+open /tmp/test.dmg
+```
+
+The window that opens is exactly what a user downloading the release sees, minus
+the signing and notarization. A locally built `.app` is signed for development
+only, so dragging it to `/Applications` and launching it will work on your Mac
+but is not a test of Gatekeeper — for that, download the CI artifact.
+
+Finder aggressively caches a volume's window settings by name. If a rebuild
+appears to show the old layout, eject the volume first, and if it persists run
+`rm ~/Library/Preferences/com.apple.finder.plist && killall Finder`.
+
+### Changing the design
+
+Icon positions live in two places that must stay in sync: `icon_locations` in
+`distribution/dmg/dmgbuild-settings.py` and the layout constants at the top of
+`scripts/dmg-background.swift`. After editing the artwork:
+
+```bash
+scripts/build-dmg-background.sh   # regenerates background.tiff + a flat PNG preview
+```
+
+Commit the regenerated `distribution/dmg/background.tiff`. CI consumes the
+committed artwork and never re-renders it, so releases do not depend on fonts or
+rendering behaviour being identical on the runner.
+
+`window_rect` in the settings file is the window *frame*, but Finder anchors the
+background picture at the top-left of the *content* view at native size. The
+frame is therefore `CONTENT_HEIGHT + TITLE_BAR_HEIGHT` tall; without that the
+bottom of the artwork is clipped.
+
 ## Required secrets and variables
 
 Configured in **GitHub → repo Settings → Secrets and variables → Actions**.

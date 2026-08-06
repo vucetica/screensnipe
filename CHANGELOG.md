@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-08-05
+
+### Changed
+- Changed the installer design. The downloaded `.dmg` now opens to a designed window with the app on the left and the `/Applications` alias on the right.
+
 ## [1.9.0] - 2026-08-05
 
 ### Fixed
@@ -78,7 +83,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.9.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.10.0...HEAD
+[1.10.0]: https://github.com/vucetica/screensnipe/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/vucetica/screensnipe/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/vucetica/screensnipe/compare/v1.8.0...v1.8.1
 [1.8.0]: https://github.com/vucetica/screensnipe/compare/v1.7.2...v1.8.0

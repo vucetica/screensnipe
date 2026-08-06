@@ -38,6 +38,15 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 5. **CI builds automatically**: pushing the tag runs `release.yml` — the `app-store` job exports the signed `.pkg` and uploads it to App Store Connect, and the `notarized-app` job produces a notarized `.app` packed as both a `.zip` and a signed/notarized `.dmg`. Both are workflow artifacts on every run, and on tags they're also attached to the GitHub Release. Submit for review manually in App Store Connect; Apple review typically takes ~24h.
 6. **CI/CD setup, secrets, and certificate renewal** are documented in [developer/RELEASE.md](developer/RELEASE.md).
 
+## DMG Installer
+
+- `scripts/make-dmg.sh <app> <out.dmg>` builds the styled install window (app left, `/Applications` right). Requires `pipx install dmgbuild`.
+- Layout is written into `.DS_Store` by `dmgbuild`, not AppleScript — GitHub runners are not authorized to send Apple events to Finder (`-1743`)
+- Background artwork: edit `scripts/dmg-background.swift`, run `scripts/build-dmg-background.sh`, commit `distribution/dmg/background.tiff`. CI never re-renders it.
+- Icon positions are duplicated in `distribution/dmg/dmgbuild-settings.py` and `scripts/dmg-background.swift` — keep them in sync
+- `window_rect` is the window frame; Finder draws the background in the content view, so the frame must be `CONTENT_HEIGHT + 28` tall or the artwork clips
+- Test loop and Finder cache gotchas: see the DMG section in [developer/RELEASE.md](developer/RELEASE.md)
+
 ## Design Philosophy
 
 - **Native look is paramount**: Always match native macOS appearance. Use system-provided components (NavigationSplitView, List with .sidebar style) over custom implementations.
