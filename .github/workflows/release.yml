@@ -204,6 +204,13 @@ jobs:
           APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
           /usr/bin/ditto -c -k --keepParent "$APP" "$RUNNER_TEMP/ScreenSnipe.zip"
 
+      - name: Install dmgbuild
+        run: |
+          set -euo pipefail
+          pipx install dmgbuild
+          # pipx's bin dir is on PATH in this step but not guaranteed in later ones.
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Create, sign & notarize DMG
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
@@ -214,14 +221,10 @@ jobs:
           APP="$RUNNER_TEMP/devid-export/${PRODUCT_NAME}.app"
           DMG="$RUNNER_TEMP/ScreenSnipe.dmg"
 
-          # Stage the app next to an /Applications symlink so the mounted
-          # DMG offers the standard drag-to-install layout.
-          STAGING="$RUNNER_TEMP/dmg-staging"
-          mkdir -p "$STAGING"
-          cp -R "$APP" "$STAGING/"
-          ln -s /Applications "$STAGING/Applications"
+          # Styled drag-to-install window: app on the left, /Applications on the
+          # right, annotated background behind them. See scripts/make-dmg.sh.
+          VOLUME_NAME="$PRODUCT_NAME" ./scripts/make-dmg.sh "$APP" "$DMG"
 
-          hdiutil create -volname "$PRODUCT_NAME" -srcfolder "$STAGING" -ov -format UDZO "$DMG"
           codesign --sign "Developer ID Application" --timestamp "$DMG"
 
           KEY_FILE="$RUNNER_TEMP/AuthKey.p8"
