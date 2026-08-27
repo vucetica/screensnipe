@@ -122,7 +122,7 @@ private struct StitchThumbnail: View {
                     .padding(3)
             }
 
-            Text(entry.mediaType == .image ? "Screenshot" : "Recording")
+            Text(entry.mediaType.displayName)
                 .font(.caption2)
                 .foregroundStyle(.secondary)
 

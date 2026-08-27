@@ -147,15 +147,17 @@ final class ShortcutRecorderNSView: NSView {
         guard isRecording else { return false }
 
         let keyCode = event.keyCode
+        let heldModifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
 
-        // Escape -> cancel
-        if keyCode == 53 {
+        // Bare Escape -> cancel. With modifiers it is a recordable shortcut
+        // (Series uses Ctrl-Shift-Escape), so fall through in that case.
+        if keyCode == 53 && heldModifiers.isEmpty {
             endRecording()
             return true
         }
 
         // Delete/Backspace -> clear
-        if keyCode == 51 || keyCode == 117 {
+        if (keyCode == 51 || keyCode == 117) && heldModifiers.isEmpty {
             shortcut = StoredShortcut(keyEquivalent: "", modifiers: 0)
             endRecording()
             onChange?(shortcut)
@@ -164,7 +166,7 @@ final class ShortcutRecorderNSView: NSView {
 
         guard let chars = event.charactersIgnoringModifiers, !chars.isEmpty else { return false }
 
-        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        let modifiers = heldModifiers
 
         // Require at least Cmd, Ctrl, or Option
         if !modifiers.contains(.command) && !modifiers.contains(.control) && !modifiers.contains(.option) {

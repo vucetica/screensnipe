@@ -48,11 +48,16 @@ enum StitchService {
     ) async throws -> URL {
         guard !config.items.isEmpty else { throw StitchError.noItems }
 
-        NSLog("[StitchService] Starting stitch with \(config.items.count) items")
+        // Flatten entries into playable sources: a series contributes one image
+        // per frame, so everything downstream sees only images and videos.
+        let sources = config.resolvedSources()
+        guard !sources.isEmpty else { throw StitchError.noItems }
+
+        NSLog("[StitchService] Starting stitch with \(sources.count) sources from \(config.items.count) items")
 
         // 1. Determine output dimensions and estimate total duration for progress
-        let outputSize = try await resolveOutputSize(items: config.items)
-        let totalEstimatedFrames = try await estimateTotalFrames(config: config, fps: 30)
+        let outputSize = try await resolveOutputSize(sources: sources)
+        let totalEstimatedFrames = try await estimateTotalFrames(sources: sources, config: config, fps: 30)
         NSLog("[StitchService] Output size: \(outputSize), estimated frames: \(totalEstimatedFrames)")
 
         // 2. Create temp output file in the library directory (user-accessible)
@@ -112,20 +117,20 @@ enum StitchService {
         }
         writer.startSession(atSourceTime: .zero)
 
-        // 4. Process each item sequentially
-        let totalItems = config.items.count
+        // 4. Process each source sequentially
+        let totalItems = sources.count
         var currentTime = CMTime.zero
         let fps: Int32 = 30
         var framesWritten: Int64 = 0
 
-        for (index, item) in config.items.enumerated() {
+        for (index, item) in sources.enumerated() {
             try Task.checkCancellation()
 
-            NSLog("[StitchService] Processing item \(index + 1)/\(totalItems): \(item.mediaType) - \(item.id)")
-            switch item.mediaType {
+            NSLog("[StitchService] Processing item \(index + 1)/\(totalItems): \(item.kind) - \(item.id)")
+            switch item.kind {
             case .video:
                 let result = try await appendVideo(
-                    entry: item,
+                    source: item,
                     writer: writer,
                     videoInput: videoInput,
                     adaptor: adaptor,
@@ -142,7 +147,7 @@ enum StitchService {
                 currentTime = result
             case .image:
                 let result = try await appendImage(
-                    entry: item,
+                    source: item,
                     writer: writer,
                     adaptor: adaptor,
                     videoInput: videoInput,
@@ -196,18 +201,18 @@ enum StitchService {
 
     // MARK: - Duration Estimation
 
-    private static func estimateTotalFrames(config: StitchConfiguration, fps: Int32) async throws -> Int64 {
+    private static func estimateTotalFrames(sources: [StitchSource], config: StitchConfiguration, fps: Int32) async throws -> Int64 {
         var total: Int64 = 0
-        for (index, item) in config.items.enumerated() {
-            switch item.mediaType {
+        for (index, item) in sources.enumerated() {
+            switch item.kind {
             case .video:
-                let asset = AVURLAsset(url: item.mediaURL)
+                let asset = AVURLAsset(url: item.url)
                 let duration = try await asset.load(.duration)
                 total += Int64(CMTimeGetSeconds(duration) * Double(fps))
             case .image:
                 total += Int64(config.imageDurationSeconds * Double(fps))
             }
-            if config.pauseDurationSeconds > 0 && index < config.items.count - 1 {
+            if config.pauseDurationSeconds > 0 && index < sources.count - 1 {
                 total += Int64(config.pauseDurationSeconds * Double(fps))
             }
         }
@@ -216,14 +221,14 @@ enum StitchService {
 
     // MARK: - Resolution
 
-    private static func resolveOutputSize(items: [LibraryEntry]) async throws -> CGSize {
+    private static func resolveOutputSize(sources: [StitchSource]) async throws -> CGSize {
         var maxWidth: Int = 0
         var maxHeight: Int = 0
 
-        for item in items {
-            switch item.mediaType {
+        for item in sources {
+            switch item.kind {
             case .video:
-                let asset = AVURLAsset(url: item.mediaURL)
+                let asset = AVURLAsset(url: item.url)
                 if let track = try await asset.loadTracks(withMediaType: .video).first {
                     let size = try await track.load(.naturalSize)
                     let transform = try await track.load(.preferredTransform)
@@ -232,7 +237,7 @@ enum StitchService {
                     maxHeight = max(maxHeight, Int(abs(transformed.height)))
                 }
             case .image:
-                if let image = NSImage(contentsOf: item.mediaURL) {
+                if let image = NSImage(contentsOf: item.url) {
                     let rep = image.representations.first
                     let w = rep?.pixelsWide ?? Int(image.size.width)
                     let h = rep?.pixelsHigh ?? Int(image.size.height)
@@ -256,7 +261,7 @@ enum StitchService {
     // MARK: - Append Video
 
     private static func appendVideo(
-        entry: LibraryEntry,
+        source: StitchSource,
         writer: AVAssetWriter,
         videoInput: AVAssetWriterInput,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
@@ -267,7 +272,7 @@ enum StitchService {
         fps: Int32,
         chunkProgress: @MainActor @Sendable (Int64) async -> Void
     ) async throws -> CMTime {
-        let asset = AVURLAsset(url: entry.mediaURL)
+        let asset = AVURLAsset(url: source.url)
         let videoTracks = try await asset.loadTracks(withMediaType: .video)
 
         guard let videoTrack = videoTracks.first else {
@@ -305,7 +310,7 @@ enum StitchService {
         var systemAudioBuffers: [CMSampleBuffer] = []
         var micAudioBuffers: [CMSampleBuffer] = []
 
-        let audioAsset = AVURLAsset(url: entry.mediaURL)
+        let audioAsset = AVURLAsset(url: source.url)
         let audioTracks = try await audioAsset.loadTracks(withMediaType: .audio)
 
         if !audioTracks.isEmpty {
@@ -476,7 +481,7 @@ enum StitchService {
     // MARK: - Append Image
 
     private static func appendImage(
-        entry: LibraryEntry,
+        source: StitchSource,
         writer: AVAssetWriter,
         adaptor: AVAssetWriterInputPixelBufferAdaptor,
         videoInput: AVAssetWriterInput,
@@ -488,8 +493,8 @@ enum StitchService {
         fps: Int32,
         chunkProgress: @MainActor @Sendable (Int64) async -> Void
     ) async throws -> CMTime {
-        guard let image = NSImage(contentsOf: entry.mediaURL) else {
-            throw StitchError.imageLoadFailed(entry.id)
+        guard let image = NSImage(contentsOf: source.url) else {
+            throw StitchError.imageLoadFailed(source.id)
         }
 
         let rep = image.representations.first
@@ -499,7 +504,7 @@ enum StitchService {
         )
 
         guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
-            throw StitchError.imageLoadFailed(entry.id)
+            throw StitchError.imageLoadFailed(source.id)
         }
 
         let ciImage = CIImage(cgImage: cgImage)

@@ -16,6 +16,13 @@ final class LibraryManager: ObservableObject {
 
     private var securityScopedURL: URL?
 
+    /// Folder name of a series being captured right now. Skipped by `reload()`
+    /// so a half-finished session never appears in the sidebar. Cleared when the
+    /// session finishes or is cancelled. A folder left behind by a crash is
+    /// deliberately still picked up on the next launch, because the manifest is
+    /// rewritten after every frame.
+    var inProgressSeriesID: String?
+
     var hasLibraryLocation: Bool {
         resolveBookmark() != nil
     }
@@ -139,12 +146,19 @@ final class LibraryManager: ObservableObject {
 
             let folderName = folderURL.lastPathComponent
             guard let date = formatter.date(from: folderName) else { continue }
+            if folderName == inProgressSeriesID { continue }
 
             let imageURL = folderURL.appendingPathComponent("screenshot.png")
             let videoURL = folderURL.appendingPathComponent("recording.mp4")
+            let seriesURL = folderURL.appendingPathComponent("series.json")
 
+            // Existence check only. reload() is @MainActor and runs over every
+            // folder on init, on library relocation, and on every refresh, so
+            // the manifest is decoded lazily on selection instead.
             let mediaType: MediaType
-            if fm.fileExists(atPath: videoURL.path) {
+            if fm.fileExists(atPath: seriesURL.path) {
+                mediaType = .series
+            } else if fm.fileExists(atPath: videoURL.path) {
                 mediaType = .video
             } else if fm.fileExists(atPath: imageURL.path) {
                 mediaType = .image
@@ -246,10 +260,79 @@ final class LibraryManager: ObservableObject {
         return entry
     }
 
+    // MARK: - Series
+
+    /// Reserves a timestamped folder for a new series session and hides it from
+    /// the sidebar until the session finishes.
+    ///
+    /// Frames are written incrementally rather than buffered: a full-screen 2x
+    /// frame is ~120 MB as a bitmap, so a 30-frame series held in memory would
+    /// be multiple gigabytes. Incremental writes also make a crash recoverable
+    /// and make cancellation a single directory removal.
+    func beginSeries() throws -> (id: String, folderURL: URL) {
+        guard let baseURL = libraryURL else {
+            throw NSError(domain: "LibraryManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No library location set"])
+        }
+        let folderName = Self.timestampString()
+        let folderURL = baseURL.appendingPathComponent(folderName)
+        try FileManager.default.createDirectory(at: folderURL.appendingPathComponent("frames"), withIntermediateDirectories: true)
+        inProgressSeriesID = folderName
+        return (folderName, folderURL)
+    }
+
+    /// Writes the thumbnail for a series (taken from its first frame).
+    func writeSeriesThumbnail(from image: NSImage, to folderURL: URL) throws {
+        guard let data = generateThumbnail(from: image) else { return }
+        try data.write(to: folderURL.appendingPathComponent("thumbnail.png"), options: .atomic)
+    }
+
+    /// Publishes a finished series into the library.
+    func finalizeSeries(id: String, folderURL: URL, manifest: SeriesManifest) throws -> LibraryEntry {
+        var manifest = manifest
+        manifest.complete = true
+        try manifest.write(to: folderURL.appendingPathComponent("series.json"))
+        inProgressSeriesID = nil
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = Self.dateFormat
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let entry = LibraryEntry(
+            id: id,
+            folderURL: folderURL,
+            captureDate: formatter.date(from: id) ?? Date(),
+            mediaType: .series,
+            metadata: CaptureMetadata()
+        )
+        entries.insert(entry, at: 0)
+        return entry
+    }
+
+    /// Discards an in-progress series and everything captured for it.
+    func discardSeries(id: String, folderURL: URL) {
+        inProgressSeriesID = nil
+        try? FileManager.default.removeItem(at: folderURL)
+    }
+
+    func loadSeriesManifest(for entry: LibraryEntry) throws -> SeriesManifest {
+        try SeriesManifest.load(from: entry.seriesManifestURL)
+    }
+
+    func saveSeriesManifest(_ manifest: SeriesManifest, for entry: LibraryEntry) throws {
+        try manifest.write(to: entry.seriesManifestURL)
+    }
+
     // MARK: - Annotations
 
     func loadAnnotations(for entry: LibraryEntry) throws -> (annotations: [AnyAnnotation], cropRect: CGRect?, magnification: CGFloat?) {
-        let data = try Data(contentsOf: entry.annotationsURL)
+        try loadAnnotations(at: entry.annotationsURL)
+    }
+
+    /// Loads an annotation sidecar from an explicit URL. Series frames each have
+    /// their own sidecar next to their PNG, so they cannot go through the
+    /// entry-addressed overload.
+    func loadAnnotations(at url: URL) throws -> (annotations: [AnyAnnotation], cropRect: CGRect?, magnification: CGFloat?) {
+        let data = try Data(contentsOf: url)
         guard !data.isEmpty else { return ([], nil, nil) }
         let text = String(data: data, encoding: .utf8) ?? ""
         if text.trimmingCharacters(in: .whitespacesAndNewlines) == "[]" { return ([], nil, nil) }
@@ -257,8 +340,12 @@ final class LibraryManager: ObservableObject {
     }
 
     func saveAnnotations(_ annotations: [AnyAnnotation], cropRect: CGRect? = nil, magnification: CGFloat? = nil, for entry: LibraryEntry) throws {
+        try saveAnnotations(annotations, cropRect: cropRect, magnification: magnification, to: entry.annotationsURL)
+    }
+
+    func saveAnnotations(_ annotations: [AnyAnnotation], cropRect: CGRect? = nil, magnification: CGFloat? = nil, to url: URL) throws {
         let data = try AnnotationSerializer.serialize(annotations, cropRect: cropRect, magnification: magnification)
-        try data.write(to: entry.annotationsURL, options: .atomic)
+        try data.write(to: url, options: .atomic)
     }
 
     // MARK: - Metadata

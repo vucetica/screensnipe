@@ -15,6 +15,11 @@ final class LibraryViewModel: ObservableObject {
     var selectedVideoURL: URL?
     var currentToolHandler: ToolHandler?
 
+    /// Manifest frame index currently loaded into the editor, or nil when the
+    /// selected entry is not a series.
+    @Published private(set) var currentFrameIndex: Int?
+    private(set) var currentSeriesManifest: SeriesManifest?
+
     // Stitch state
     @Published var showStitchDialog = false
     @Published var showStitchProgress = false
@@ -32,27 +37,36 @@ final class LibraryViewModel: ObservableObject {
     private var cancellables: Set<AnyCancellable> = []
     private var currentEntryID: String?
 
+    /// Identifies exactly which file a pending save belongs to. Stamped when the
+    /// save is *scheduled*, so a save can never land in a file the user has
+    /// since navigated away from.
+    private struct SaveTarget: Equatable, Sendable {
+        let entryID: String
+        /// Manifest frame index for series entries; nil for image and video.
+        let frameIndex: Int?
+    }
+
+    private var saveTask: Task<Void, Never>?
+    private var pendingSaveTarget: SaveTarget?
+
     private init() {
-        annotationStore.$annotations
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.autoSave()
-            }
-            .store(in: &cancellables)
-
-        annotationStore.$cropRect
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.autoSave()
-            }
-            .store(in: &cancellables)
-
-        annotationStore.$magnification
-            .debounce(for: .milliseconds(300), scheduler: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.autoSave()
-            }
-            .store(in: &cancellables)
+        // Scheduling is owned explicitly rather than using Combine's debounce,
+        // because a debounce cannot be flushed. Switching entries or frames must
+        // be able to write pending edits to the file they were made in before
+        // the store's contents are swapped.
+        let editSignals: [AnyPublisher<Void, Never>] = [
+            annotationStore.$annotations.map { _ in () }.eraseToAnyPublisher(),
+            annotationStore.$cropRect.map { _ in () }.eraseToAnyPublisher(),
+            annotationStore.$magnification.map { _ in () }.eraseToAnyPublisher(),
+        ]
+        for signal in editSignals {
+            signal
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] in
+                    self?.scheduleAutoSave()
+                }
+                .store(in: &cancellables)
+        }
 
         // Derive selectedEntryID from selectedEntryIDs
         $selectedEntryIDs
@@ -100,12 +114,14 @@ final class LibraryViewModel: ObservableObject {
         case shared
         case image
         case video
+        case series
 
         func matches(_ entry: LibraryEntry) -> Bool {
             switch self {
             case .shared: entry.metadata.shareURL != nil
             case .image: entry.mediaType == .image
             case .video: entry.mediaType == .video
+            case .series: entry.mediaType == .series
             }
         }
     }
@@ -140,9 +156,8 @@ final class LibraryViewModel: ObservableObject {
     }()
 
     static func defaultName(for entry: LibraryEntry) -> String {
-        let typePrefix = entry.mediaType == .image ? "Screenshot" : "Recording"
         let timestamp = exportDateFormatter.string(from: entry.captureDate)
-        return "\(typePrefix) \(timestamp)"
+        return "\(entry.mediaType.exportPrefix) \(timestamp)"
     }
 
     /// Date string shown in the library sidebar row when an entry has no custom name
@@ -170,6 +185,10 @@ final class LibraryViewModel: ObservableObject {
     }
 
     func deleteEntry(_ entry: LibraryEntry) {
+        // Drop, don't flush: the folder is about to go away.
+        if entry.id == currentEntryID {
+            cancelPendingSave()
+        }
         do {
             try LibraryManager.shared.delete(entry: entry)
         } catch {
@@ -182,7 +201,12 @@ final class LibraryViewModel: ObservableObject {
     // MARK: - Loading
 
     private func loadSelectedEntry() {
+        // Write the outgoing entry's pending edits before anything is retargeted.
+        flushPendingSave()
+
         currentEntryID = selectedEntryID
+        currentFrameIndex = nil
+        currentSeriesManifest = nil
         activeTool = .selection
 
         guard let id = selectedEntryID,
@@ -196,11 +220,15 @@ final class LibraryViewModel: ObservableObject {
 
         switch entry.mediaType {
         case .image:
-            selectedImage = NSImage(contentsOf: entry.mediaURL)
+            selectedImage = entry.mediaURL.flatMap { NSImage(contentsOf: $0) }
             selectedVideoURL = nil
         case .video:
             selectedImage = nil
             selectedVideoURL = entry.mediaURL
+        case .series:
+            selectedVideoURL = nil
+            loadSeries(entry)
+            return
         }
 
         let result: (annotations: [AnyAnnotation], cropRect: CGRect?, magnification: CGFloat?)
@@ -212,6 +240,162 @@ final class LibraryViewModel: ObservableObject {
         }
         annotationStore.replaceAllWithoutUndo(result.annotations, cropRect: result.cropRect, magnification: result.magnification)
         objectWillChange.send()
+    }
+
+    // MARK: - Series Frames
+
+    /// Ordered frames of the selected series, or an empty array for other entries.
+    var seriesFrames: [SeriesManifest.Frame] {
+        currentSeriesManifest?.frames ?? []
+    }
+
+    /// 1-based position of the current frame, for "Frame N of M".
+    var currentFramePosition: Int? {
+        guard let index = currentFrameIndex else { return nil }
+        return currentSeriesManifest?.position(of: index).map { $0 + 1 }
+    }
+
+    var canGoToPreviousFrame: Bool {
+        guard let position = currentFramePosition else { return false }
+        return position > 1
+    }
+
+    var canGoToNextFrame: Bool {
+        guard let position = currentFramePosition else { return false }
+        return position < seriesFrames.count
+    }
+
+    /// Absolute URL of a frame's PNG, for the filmstrip.
+    func frameImageURL(_ frame: SeriesManifest.Frame) -> URL? {
+        guard let id = currentEntryID,
+              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }) else { return nil }
+        return entry.url(forFramePath: frame.file)
+    }
+
+    private func loadSeries(_ entry: LibraryEntry) {
+        do {
+            currentSeriesManifest = try LibraryManager.shared.loadSeriesManifest(for: entry)
+        } catch {
+            ErrorReporter.log(error, context: "Failed to load series manifest for \(entry.id)")
+            currentSeriesManifest = nil
+        }
+        guard let first = currentSeriesManifest?.frames.first else {
+            selectedImage = nil
+            annotationStore.replaceAllWithoutUndo([])
+            objectWillChange.send()
+            return
+        }
+        applyFrame(first, of: entry)
+    }
+
+    /// Switches the editor to a different frame of the currently selected series.
+    /// `index` is the manifest frame index, not the filmstrip position.
+    func loadFrame(_ index: Int) {
+        guard let id = currentEntryID,
+              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }),
+              entry.mediaType == .series,
+              let frame = currentSeriesManifest?.frame(at: index),
+              index != currentFrameIndex else { return }
+
+        // Frame N's edits go to frame N's file, before the target is moved.
+        flushPendingSave()
+        applyFrame(frame, of: entry)
+    }
+
+    func goToPreviousFrame() {
+        guard let position = currentFramePosition, position > 1 else { return }
+        loadFrame(seriesFrames[position - 2].index)
+    }
+
+    func goToNextFrame() {
+        guard let position = currentFramePosition, position < seriesFrames.count else { return }
+        loadFrame(seriesFrames[position].index)
+    }
+
+    /// Loads a frame's image and annotations into the shared editor state.
+    ///
+    /// The retarget happens before the store is refilled, so the save that the
+    /// refill schedules is stamped with the *new* frame and writes the
+    /// just-loaded annotations back into their own file. That round-trip is
+    /// idempotent because the serializer preserves annotation identity. A
+    /// timing-based "is loading" flag would not work here: the edit sinks are
+    /// asynchronous, so they run after any such flag was reset.
+    private func applyFrame(_ frame: SeriesManifest.Frame, of entry: LibraryEntry) {
+        currentFrameIndex = frame.index
+        activeTool = .selection
+        selectedImage = NSImage(contentsOf: entry.url(forFramePath: frame.file))
+        selectedVideoURL = nil
+
+        let result: (annotations: [AnyAnnotation], cropRect: CGRect?, magnification: CGFloat?)
+        do {
+            result = try LibraryManager.shared.loadAnnotations(at: entry.url(forFramePath: frame.annotations))
+        } catch {
+            result = (annotations: [], cropRect: nil, magnification: nil)
+        }
+        annotationStore.replaceAllWithoutUndo(result.annotations, cropRect: result.cropRect, magnification: result.magnification)
+        objectWillChange.send()
+    }
+
+    /// Every frame of the selected series, flattened-ready, for a multi-page export.
+    ///
+    /// The frame currently open in the editor is taken from the live store so
+    /// unsaved edits are included; the rest are read from disk.
+    func seriesExportFrames() -> [ImageExportService.SeriesExportFrame] {
+        guard let id = currentEntryID,
+              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }),
+              let manifest = currentSeriesManifest else { return [] }
+
+        return manifest.frames.compactMap { frame in
+            if frame.index == currentFrameIndex, let image = selectedImage {
+                return ImageExportService.SeriesExportFrame(
+                    image: image,
+                    annotations: annotationStore.annotations,
+                    cropRect: annotationStore.cropRect
+                )
+            }
+            guard let image = NSImage(contentsOf: entry.url(forFramePath: frame.file)) else { return nil }
+            let result = try? LibraryManager.shared.loadAnnotations(at: entry.url(forFramePath: frame.annotations))
+            return ImageExportService.SeriesExportFrame(
+                image: image,
+                annotations: result?.annotations ?? [],
+                cropRect: result?.cropRect
+            )
+        }
+    }
+
+    /// Removes a frame from the series, keeping its files' siblings intact.
+    /// Frame indices are never renumbered, so nothing else on disk moves.
+    func deleteFrame(_ index: Int) {
+        guard let id = currentEntryID,
+              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }),
+              var manifest = currentSeriesManifest,
+              let position = manifest.position(of: index),
+              manifest.frames.count > 1 else { return }
+
+        if index == currentFrameIndex {
+            cancelPendingSave()
+        } else {
+            flushPendingSave()
+        }
+
+        let frame = manifest.frames.remove(at: position)
+        try? FileManager.default.removeItem(at: entry.url(forFramePath: frame.file))
+        try? FileManager.default.removeItem(at: entry.url(forFramePath: frame.annotations))
+        do {
+            try LibraryManager.shared.saveSeriesManifest(manifest, for: entry)
+        } catch {
+            ErrorReporter.report(error, context: "Failed to update series")
+            return
+        }
+        currentSeriesManifest = manifest
+
+        if index == currentFrameIndex {
+            let neighbour = manifest.frames[min(position, manifest.frames.count - 1)]
+            currentFrameIndex = nil
+            applyFrame(neighbour, of: entry)
+        } else {
+            objectWillChange.send()
+        }
     }
 
     // MARK: - Metadata
@@ -302,7 +486,8 @@ final class LibraryViewModel: ObservableObject {
         // Flatten on the main actor before handing Sendable data to the service.
         let payload: ICloudSharePayload
         switch entry.mediaType {
-        case .image:
+        case .image, .series:
+            // For a series this publishes the frame currently open in the editor.
             guard let data = flattenedPNGData(for: entry) else {
                 ErrorReporter.report(
                     NSError(domain: "LibraryViewModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to render the image for sharing"]),
@@ -312,7 +497,8 @@ final class LibraryViewModel: ObservableObject {
             }
             payload = .imageData(data)
         case .video:
-            payload = .file(entry.mediaURL)
+            guard let url = entry.mediaURL else { return }
+            payload = .file(url)
         }
 
         showShareLinkProgress = true
@@ -429,8 +615,21 @@ final class LibraryViewModel: ObservableObject {
             image = selected
             annotations = annotationStore.annotations
             cropRect = annotationStore.cropRect
+        } else if entry.mediaType == .series {
+            // Not the selected entry, so fall back to the series' first frame.
+            let manifest = try? SeriesManifest.load(from: entry.seriesManifestURL)
+            if let frame = manifest?.frames.first {
+                image = NSImage(contentsOf: entry.url(forFramePath: frame.file))
+                let result = try? LibraryManager.shared.loadAnnotations(at: entry.url(forFramePath: frame.annotations))
+                annotations = result?.annotations ?? []
+                cropRect = result?.cropRect
+            } else {
+                image = nil
+                annotations = []
+                cropRect = nil
+            }
         } else {
-            image = NSImage(contentsOf: entry.mediaURL)
+            image = entry.mediaURL.flatMap { NSImage(contentsOf: $0) }
             if let result = try? LibraryManager.shared.loadAnnotations(for: entry) {
                 annotations = result.annotations
                 cropRect = result.cropRect
@@ -448,11 +647,68 @@ final class LibraryViewModel: ObservableObject {
 
     // MARK: - Auto-save
 
-    private func autoSave() {
+    private var currentSaveTarget: SaveTarget? {
         guard let id = currentEntryID,
-              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }) else { return }
+              let entry = LibraryManager.shared.entries.first(where: { $0.id == id }) else { return nil }
+        return SaveTarget(entryID: id, frameIndex: entry.mediaType == .series ? currentFrameIndex : nil)
+    }
+
+    private func scheduleAutoSave() {
+        guard let target = currentSaveTarget else { return }
+        saveTask?.cancel()
+        pendingSaveTarget = target
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingSaveTarget = nil
+            self.saveTask = nil
+            self.performSave(to: target)
+        }
+    }
+
+    /// Writes any pending annotation edits to the file they were actually made in.
+    ///
+    /// Must be called *before* the annotation store's contents are swapped for a
+    /// different entry or frame, while the store still holds the old contents.
+    /// Without it, a save still in flight fires after the swap and writes the
+    /// newly loaded annotations into the previous file, losing the last edits
+    /// with no error.
+    func flushPendingSave() {
+        guard let target = pendingSaveTarget else { return }
+        saveTask?.cancel()
+        saveTask = nil
+        pendingSaveTarget = nil
+        performSave(to: target)
+    }
+
+    /// Drops a pending save without writing it. Used when the target file is
+    /// about to be deleted, so the write does not race the removal and report a
+    /// spurious failure.
+    func cancelPendingSave() {
+        saveTask?.cancel()
+        saveTask = nil
+        pendingSaveTarget = nil
+    }
+
+    private func performSave(to target: SaveTarget) {
+        guard let entry = LibraryManager.shared.entries.first(where: { $0.id == target.entryID }) else { return }
         do {
-            try LibraryManager.shared.saveAnnotations(annotationStore.annotations, cropRect: annotationStore.cropRect, magnification: annotationStore.magnification, for: entry)
+            if let frameIndex = target.frameIndex {
+                guard let frame = currentSeriesManifest?.frame(at: frameIndex) else { return }
+                try LibraryManager.shared.saveAnnotations(
+                    annotationStore.annotations,
+                    cropRect: annotationStore.cropRect,
+                    magnification: annotationStore.magnification,
+                    to: entry.url(forFramePath: frame.annotations)
+                )
+            } else {
+                try LibraryManager.shared.saveAnnotations(
+                    annotationStore.annotations,
+                    cropRect: annotationStore.cropRect,
+                    magnification: annotationStore.magnification,
+                    for: entry
+                )
+            }
         } catch {
             ErrorReporter.report(error, context: "Failed to save annotations")
         }

@@ -12,8 +12,28 @@ final class RecordingBorderWindow {
     private var trackingTimer: Timer?
     fileprivate static let borderWidth: CGFloat = 3
 
+    /// Stroke color of the border. Recording uses red; a series session uses the
+    /// accent color so the two modes are not confusable on screen.
+    var borderColor: NSColor = .systemRed
+
+    /// Called when a tracked window disappears for good. Without it the caller
+    /// keeps a reference to a border that has silently hidden itself.
+    var onTargetLost: (() -> Void)?
+
+    /// Called when a tracked window's visibility changes, so a caller can
+    /// disable capture before the user tries it.
+    var onAvailabilityChanged: ((Bool) -> Void)?
+
+    private var lastReportedAvailability: Bool?
+
     func show(for target: TrackingTarget) {
+        let color = borderColor
+        let lost = onTargetLost
+        let availability = onAvailabilityChanged
         hide()
+        borderColor = color
+        onTargetLost = lost
+        onAvailabilityChanged = availability
 
         let frame: NSRect
         switch target {
@@ -39,6 +59,7 @@ final class RecordingBorderWindow {
         panel.hidesOnDeactivate = false
 
         let borderView = RecordingBorderView(frame: NSRect(origin: .zero, size: frame.size))
+        borderView.strokeColor = borderColor
         panel.contentView = borderView
 
         self.panel = panel
@@ -60,6 +81,9 @@ final class RecordingBorderWindow {
         trackingTimer = nil
         panel?.orderOut(nil)
         panel = nil
+        lastReportedAvailability = nil
+        onTargetLost = nil
+        onAvailabilityChanged = nil
     }
 
     // MARK: - Window Tracking
@@ -74,21 +98,32 @@ final class RecordingBorderWindow {
 
     private func updateTrackedWindow(windowID: CGWindowID) {
         guard let bounds = Self.windowBounds(for: windowID) else {
-            // Window closed — hide border
+            // Window closed for good.
+            let lost = onTargetLost
+            reportAvailability(false)
             hide()
+            lost?()
             return
         }
 
         // Check if window is on screen
         if !Self.isWindowOnScreen(windowID: windowID) {
             panel?.setIsVisible(false)
+            reportAvailability(false)
             return
         }
 
         panel?.setIsVisible(true)
+        reportAvailability(true)
         let frame = panelFrame(for: bounds)
         panel?.setFrame(frame, display: true)
         panel?.order(.above, relativeTo: Int(windowID))
+    }
+
+    private func reportAvailability(_ available: Bool) {
+        guard lastReportedAvailability != available else { return }
+        lastReportedAvailability = available
+        onAvailabilityChanged?(available)
     }
 
     // MARK: - Coordinate Conversion
@@ -115,31 +150,21 @@ final class RecordingBorderWindow {
     // MARK: - CGWindowList Helpers
 
     private static func windowBounds(for windowID: CGWindowID) -> CGRect? {
-        guard let infoList = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
-              let info = infoList.first,
-              let boundsDict = info[kCGWindowBounds as String] as? NSDictionary else {
-            return nil
-        }
-        var rect = CGRect.zero
-        guard CGRectMakeWithDictionaryRepresentation(boundsDict, &rect) else {
-            return nil
-        }
-        return rect
+        WindowInfo.bounds(for: windowID)
     }
 
     private static func isWindowOnScreen(windowID: CGWindowID) -> Bool {
-        guard let infoList = CGWindowListCopyWindowInfo([.optionIncludingWindow], windowID) as? [[String: Any]],
-              let info = infoList.first else {
-            return false
-        }
-        // kCGWindowIsOnscreen may not be present if the window is off-screen
-        return (info[kCGWindowIsOnscreen as String] as? Bool) ?? false
+        WindowInfo.isOnScreen(windowID)
     }
 }
 
 // MARK: - Border View
 
 private final class RecordingBorderView: NSView {
+    var strokeColor: NSColor = .systemRed {
+        didSet { needsDisplay = true }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -153,7 +178,7 @@ private final class RecordingBorderView: NSView {
         let strokeRect = bounds.insetBy(dx: bw / 2, dy: bw / 2)
         let path = NSBezierPath(rect: strokeRect)
         path.lineWidth = bw
-        NSColor.systemRed.setStroke()
+        strokeColor.setStroke()
         path.stroke()
     }
 }

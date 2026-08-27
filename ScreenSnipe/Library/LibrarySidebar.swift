@@ -14,7 +14,11 @@ struct LibrarySidebar: View {
                     .id(entry.id)
             }
             .contextMenu(forSelectionType: String.self) { selectedIDs in
-                if selectedIDs.count >= 2 {
+                // A single series is already an ordered set of images, so it is
+                // a valid stitch input on its own.
+                let isSingleSeries = selectedIDs.count == 1
+                    && viewModel.entries.first { $0.id == selectedIDs.first }?.mediaType == .series
+                if selectedIDs.count >= 2 || isSingleSeries {
                     Button("Stitch Together...") {
                         viewModel.beginStitch()
                     }
@@ -26,7 +30,8 @@ struct LibrarySidebar: View {
                         entryToEdit = entry
                     }
                     Button("Show in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([entry.mediaURL])
+                        // A series has no single media file; reveal its folder.
+                        NSWorkspace.shared.activateFileViewerSelecting([entry.mediaURL ?? entry.folderURL])
                     }
                     Divider()
                     Button("Copy iCloud Link") {

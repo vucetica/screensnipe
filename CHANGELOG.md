@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-08-27
+
+### Added
+- **Series capture**, a third capture mode alongside screenshots and recordings. Pick a region, window, or full screen as usual, then snap as many stills of that same target as you like from a floating control panel or with a shortcut (Ctrl-Shift-Space by default). The result is a single library entry holding an ordered set of frames.
+- Every frame in a series is annotatable with the full tool set. The editor shows a filmstrip under the canvas for jumping to any frame, prev/next buttons and a frame counter in the toolbar, and Option-Left / Option-Right to step through frames. Clicking the filmstrip focuses it, after which plain Left and Right arrows move between frames; the canvas keeps plain arrows for nudging a selected annotation.
+- Series entries can be exported as a single multi-page TIFF or PDF. Choosing PNG or JPEG in the save panel exports just the frame currently open.
+- Series can be stitched into a video, including a single series on its own, with each frame getting the configured image duration.
+- `is:series` narrows library search to series captures, and series rows in the sidebar show their frame count.
+- Right-click a filmstrip thumbnail to delete that frame.
+
+### Fixed
+- Annotations are no longer lost when switching between library entries quickly. Edits made within the auto-save delay were written to the newly selected entry instead of the one they were made in.
+- Annotations made in the final moments before quitting are now saved rather than discarded.
+- Escape can now be assigned as a keyboard shortcut when combined with modifiers, and shortcuts using Space, Return, Tab, or Escape display as proper symbols in Preferences instead of appearing blank.
+- The window picker no longer lists Screen Snipe's own windows.
+
 ## [1.10.0] - 2026-08-05
 
 ### Changed
@@ -83,7 +99,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.10.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.11.0...HEAD
+[1.11.0]: https://github.com/vucetica/screensnipe/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/vucetica/screensnipe/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/vucetica/screensnipe/compare/v1.8.1...v1.9.0
 [1.8.1]: https://github.com/vucetica/screensnipe/compare/v1.8.0...v1.8.1

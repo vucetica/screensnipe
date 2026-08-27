@@ -3,6 +3,33 @@ import Foundation
 enum MediaType: String, Sendable {
     case image
     case video
+    case series
+
+    var iconName: String {
+        switch self {
+        case .image: "photo"
+        case .video: "video"
+        case .series: "rectangle.stack"
+        }
+    }
+
+    /// Label shown in the sidebar row and the stitch dialog.
+    var displayName: String {
+        switch self {
+        case .image: "Screenshot"
+        case .video: "Recording"
+        case .series: "Series"
+        }
+    }
+
+    /// Prefix used to build a default export name.
+    var exportPrefix: String {
+        switch self {
+        case .image: "Screenshot"
+        case .video: "Recording"
+        case .series: "Series"
+        }
+    }
 }
 
 struct CaptureMetadata: Codable, Sendable, Equatable {
@@ -47,13 +74,35 @@ struct LibraryEntry: Identifiable, Sendable, Equatable {
 
     var name: String? { metadata.name }
 
-    var mediaURL: URL {
+    /// The single file that *is* this capture.
+    ///
+    /// `nil` for `.series`, which has no canonical single file: use
+    /// `seriesManifestURL` and resolve frame paths through the manifest.
+    /// Returning the first frame instead would be a lie once that frame is
+    /// deleted, and returning `folderURL` makes `NSImage(contentsOf:)` fail
+    /// silently.
+    var mediaURL: URL? {
         switch mediaType {
         case .image:
             folderURL.appendingPathComponent("screenshot.png")
         case .video:
             folderURL.appendingPathComponent("recording.mp4")
+        case .series:
+            nil
         }
+    }
+
+    var seriesManifestURL: URL {
+        folderURL.appendingPathComponent("series.json")
+    }
+
+    var framesDirectoryURL: URL {
+        folderURL.appendingPathComponent("frames")
+    }
+
+    /// Absolute URL for a manifest-relative frame path.
+    func url(forFramePath path: String) -> URL {
+        folderURL.appendingPathComponent(path)
     }
 
     var annotationsURL: URL {

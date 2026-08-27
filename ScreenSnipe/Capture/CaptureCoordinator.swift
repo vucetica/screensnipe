@@ -13,11 +13,14 @@ final class CaptureCoordinator: ObservableObject {
         case capturing
         case editing(NSImage)
         case recording
+        case seriesActive
     }
 
     @Published private(set) var state: State = .idle
     @Published private(set) var isRecording = false
     @Published private(set) var isCountingDown = false
+    @Published private(set) var isSeriesActive = false
+    @Published private(set) var seriesFrameCount = 0
 
     /// True while a capture or recording flow is actively in progress and a new one
     /// must not be started. `.editing` is intentionally excluded: it's the post-capture
@@ -25,7 +28,7 @@ final class CaptureCoordinator: ObservableObject {
     var isBusy: Bool {
         if isCountingDown { return true }
         switch state {
-        case .selectingRegion, .selectingWindow, .capturing, .recording:
+        case .selectingRegion, .selectingWindow, .capturing, .recording, .seriesActive:
             return true
         case .idle, .editing:
             return false
@@ -40,6 +43,14 @@ final class CaptureCoordinator: ObservableObject {
     private var recordingBorderWindow: RecordingBorderWindow?
     private var frozenScreenshot: CGImage?
     private var writerErrorObserver: AnyCancellable?
+
+    private var seriesSession: SeriesSession?
+    private var seriesHUD: SeriesHUDWindow?
+    private var seriesBorder: RecordingBorderWindow?
+    private var seriesTargetAvailable = true
+    /// Guards against re-entrancy from hotkey autorepeat. Deliberately separate
+    /// from `state`, which must stay `.seriesActive` for the whole session.
+    private var isSnapping = false
 
     init() {
         writerErrorObserver = videoService.$writerError
@@ -460,4 +471,392 @@ final class CaptureCoordinator: ObservableObject {
         alert.alertStyle = .warning
         alert.runModal()
     }
+}
+
+// MARK: - Series Capture
+
+extension CaptureCoordinator {
+
+    /// Live state of a series capture session.
+    ///
+    /// The window case holds a `CGWindowID` rather than an `SCWindow` so bounds
+    /// are re-read on every snap: an `SCWindow` carries the frame from pick
+    /// time, and a window resized mid-series would then produce frames whose
+    /// point size disagrees with their pixel size.
+    struct SeriesSession {
+        enum Target {
+            case fullScreen(displayID: CGDirectDisplayID)
+            /// Flipped, display-relative, exactly as RegionSelectionView emits.
+            /// The display is pinned at session start: NSScreen.main follows the
+            /// key window, so it can move between snaps.
+            case region(CGRect, displayID: CGDirectDisplayID)
+            case window(id: CGWindowID, appName: String?, title: String?)
+        }
+
+        let target: Target
+        let entryID: String
+        let folderURL: URL
+        let createdAt: Date
+        let displayScale: CGFloat
+        var frames: [SeriesManifest.Frame] = []
+        var nextFrameIndex = 1
+        var pendingWrites: [Task<Void, Never>] = []
+
+        var manifestTarget: SeriesManifest.Target {
+            switch target {
+            case .fullScreen(let displayID):
+                .fullScreen(displayID: UInt32(displayID))
+            case .region(let rect, _):
+                .region(x: rect.origin.x, y: rect.origin.y, width: rect.width, height: rect.height)
+            case .window(let id, let appName, let title):
+                .window(windowID: UInt32(id), appName: appName, title: title)
+            }
+        }
+
+        func makeManifest(complete: Bool) -> SeriesManifest {
+            SeriesManifest(
+                createdAt: createdAt,
+                target: manifestTarget,
+                displayScale: displayScale,
+                frames: frames,
+                complete: complete
+            )
+        }
+    }
+
+    // MARK: Start
+
+    func startSeries(mode: CaptureMode) {
+        guard !isBusy else { return }
+        Task {
+            guard await LibraryManager.shared.ensureLibraryLocation() else { return }
+            guard await ensureScreenCaptureAccess() else { return }
+            switch mode {
+            case .fullScreen:
+                beginSeries(target: .fullScreen(displayID: CGMainDisplayID()))
+            case .region:
+                beginSeriesRegionSelection()
+            case .window:
+                await showSeriesWindowPicker()
+            }
+        }
+    }
+
+    private func beginSeriesRegionSelection() {
+        state = .selectingRegion
+        do {
+            let screenshot = try captureService.captureFullScreenCGImage()
+            LibraryWindow.hideAll()
+            // Pin the display the overlay is drawn on: the region rect is
+            // relative to it, and NSScreen.main can move later in the session.
+            let screen = NSScreen.main ?? NSScreen.screens[0]
+            let regionDisplayID = Self.displayID(for: screen)
+            let displayImage = NSImage(cgImage: screenshot, size: screen.frame.size)
+
+            let window = RegionSelectionWindow(frozenImage: displayImage) { [weak self] region in
+                guard let self else { return }
+                self.regionSelectionWindow?.close()
+                self.regionSelectionWindow = nil
+                self.beginSeries(target: .region(region, displayID: regionDisplayID))
+            } onCancel: { [weak self] in
+                self?.cancel()
+            }
+            regionSelectionWindow = window
+            window.alphaValue = 0
+            window.makeKeyAndOrderFront(nil)
+            DispatchQueue.main.async { window.alphaValue = 1 }
+        } catch {
+            state = .idle
+            LibraryWindow.showAll()
+            showError(error)
+        }
+    }
+
+    private func showSeriesWindowPicker() async {
+        state = .selectingWindow
+        LibraryWindow.hideAll()
+        do {
+            let windows = try await captureService.availableWindows()
+            let pickerView = WindowPickerView(windows: windows) { [weak self] scWindow in
+                guard let self else { return }
+                self.windowPickerWindow?.close()
+                self.windowPickerWindow = nil
+                self.beginSeries(target: .window(
+                    id: CGWindowID(scWindow.windowID),
+                    appName: scWindow.owningApplication?.applicationName,
+                    title: scWindow.title
+                ))
+            } onCancel: { [weak self] in
+                self?.windowPickerWindow?.close()
+                self?.windowPickerWindow = nil
+                self?.state = .idle
+                LibraryWindow.showAll()
+            }
+
+            let window = NSWindow(
+                contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
+                styleMask: [.titled, .closable],
+                backing: .buffered,
+                defer: false
+            )
+            window.isReleasedWhenClosed = false
+            window.title = "Select Window for Series"
+            window.contentView = NSHostingView(rootView: pickerView)
+            window.center()
+            window.makeKeyAndOrderFront(nil)
+            NSApp.activate()
+            windowPickerWindow = window
+        } catch {
+            state = .idle
+            LibraryWindow.showAll()
+            showError(error)
+        }
+    }
+
+    private func beginSeries(target: SeriesSession.Target) {
+        LibraryWindow.hideAll()
+        let folder: (id: String, folderURL: URL)
+        do {
+            folder = try LibraryManager.shared.beginSeries()
+        } catch {
+            state = .idle
+            LibraryWindow.showAll()
+            showError(error)
+            return
+        }
+
+        let screen = NSScreen.main ?? NSScreen.screens[0]
+        seriesSession = SeriesSession(
+            target: target,
+            entryID: folder.id,
+            folderURL: folder.folderURL,
+            createdAt: Date(),
+            displayScale: screen.backingScaleFactor
+        )
+        state = .seriesActive
+        isSeriesActive = true
+        seriesFrameCount = 0
+        seriesTargetAvailable = true
+
+        showSeriesBorder(for: target)
+        presentSeriesHUD()
+    }
+
+    private func presentSeriesHUD() {
+        let hud = SeriesHUDWindow()
+        hud.onSnipe = { [weak self] in self?.snapSeriesFrame() }
+        hud.onFinish = { [weak self] in self?.finishSeries() }
+        hud.onCancel = { [weak self] in self?.cancelSeries() }
+        seriesHUD = hud
+        refreshSeriesHUD()
+        hud.present()
+    }
+
+    private func refreshSeriesHUD() {
+        seriesHUD?.update(
+            frameCount: seriesFrameCount,
+            targetAvailable: seriesTargetAvailable,
+            shortcut: ShortcutManager.shared.shortcut(for: .snapSeriesFrame).displayString
+        )
+    }
+
+    private func showSeriesBorder(for target: SeriesSession.Target) {
+        let border = RecordingBorderWindow()
+        border.borderColor = .controlAccentColor
+        switch target {
+        case .fullScreen:
+            // Matches recording: a border around the whole screen adds nothing.
+            return
+        case .region(let region, _):
+            border.show(for: .staticRegion(region))
+        case .window(let id, _, _):
+            border.onAvailabilityChanged = { [weak self] available in
+                self?.seriesTargetAvailable = available
+                if !available {
+                    self?.seriesHUD?.showWarning("Window is not visible.", persistent: true)
+                } else {
+                    self?.seriesHUD?.clearWarning()
+                }
+                self?.refreshSeriesHUD()
+            }
+            border.onTargetLost = { [weak self] in
+                guard let self else { return }
+                self.seriesTargetAvailable = false
+                self.seriesBorder = nil
+                self.seriesHUD?.showWarning("Window closed. Press Done to keep the frames.", persistent: true)
+                self.refreshSeriesHUD()
+            }
+            border.show(for: .trackedWindow(id))
+        }
+        seriesBorder = border
+    }
+
+    /// The display a window is on, as a CG display ID.
+    static func displayID(for screen: NSScreen?) -> CGDirectDisplayID {
+        guard let number = screen?.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return CGMainDisplayID()
+        }
+        return CGDirectDisplayID(number.uint32Value)
+    }
+
+    /// The NSScreen backing a CG display ID, so a session keeps capturing the
+    /// display it started on.
+    static func screen(for target: CGDirectDisplayID) -> NSScreen {
+        NSScreen.screens.first { displayID(for: $0) == target }
+            ?? NSScreen.main
+            ?? NSScreen.screens[0]
+    }
+
+    // MARK: Snap
+
+    func snapSeriesFrame() {
+        guard case .seriesActive = state, var session = seriesSession, !isSnapping else { return }
+        isSnapping = true
+        defer { isSnapping = false }
+
+        let image: NSImage
+        do {
+            image = try captureSeriesTarget(session.target)
+        } catch {
+            // Never an NSAlert during a session: a modal run loop activates the
+            // app, changes the target window's appearance, and can land in the
+            // next frame.
+            seriesHUD?.showWarning(error.localizedDescription)
+            return
+        }
+
+        guard let rep = image.representations.first as? NSBitmapImageRep else {
+            seriesHUD?.showWarning("Could not read the captured frame.")
+            return
+        }
+
+        let index = session.nextFrameIndex
+        session.nextFrameIndex += 1
+        let filePath = SeriesManifest.frameFileName(index: index)
+        let annotationsPath = SeriesManifest.annotationsFileName(index: index)
+        let fileURL = session.folderURL.appendingPathComponent(filePath)
+
+        // Write the empty annotation sidecar first, so a failure here leaves no
+        // orphan PNG behind and loadFrame never meets a missing sidecar.
+        do {
+            try Data("[]".utf8).write(
+                to: session.folderURL.appendingPathComponent(annotationsPath),
+                options: .atomic
+            )
+        } catch {
+            seriesHUD?.showWarning("Could not write the frame to the library.")
+            return
+        }
+
+        // Encoding is hundreds of milliseconds of libpng; keep it off the main
+        // actor. Ownership of the rep is handed over and never touched again here.
+        let job = PNGEncodeJob(rep: rep, url: fileURL)
+        session.pendingWrites.append(Task.detached(priority: .userInitiated) {
+            guard let data = job.rep.representation(using: .png, properties: [:]) else { return }
+            try? data.write(to: job.url, options: .atomic)
+        })
+
+        session.frames.append(SeriesManifest.Frame(
+            index: index,
+            file: filePath,
+            annotations: annotationsPath,
+            capturedAt: Date(),
+            pixelWidth: rep.pixelsWide,
+            pixelHeight: rep.pixelsHigh,
+            pointWidth: image.size.width,
+            pointHeight: image.size.height
+        ))
+
+        if session.frames.count == 1 {
+            try? LibraryManager.shared.writeSeriesThumbnail(from: image, to: session.folderURL)
+        }
+        // Rewritten after every frame so a crash still leaves a usable entry.
+        try? session.makeManifest(complete: false)
+            .write(to: session.folderURL.appendingPathComponent("series.json"))
+
+        seriesSession = session
+        seriesFrameCount = session.frames.count
+        seriesHUD?.flashCaptureConfirmation()
+        refreshSeriesHUD()
+    }
+
+    private func captureSeriesTarget(_ target: SeriesSession.Target) throws -> NSImage {
+        switch target {
+        case .fullScreen(let displayID):
+            let screen = Self.screen(for: displayID)
+            let cgImage = try captureService.captureExcludingOwnWindows(bounds: CGDisplayBounds(displayID))
+            return captureService.makeStableImage(from: cgImage, size: screen.frame.size)
+        case .region(let region, let displayID):
+            // Reuse the frozen-crop math the screenshot path uses, so region
+            // coordinates stay handled in exactly one place.
+            let screen = Self.screen(for: displayID)
+            let full = try captureService.captureExcludingOwnWindows(bounds: CGDisplayBounds(displayID))
+            return try captureService.cropRegion(from: full, region: region, screenSize: screen.frame.size)
+        case .window(let id, _, _):
+            // .optionIncludingWindow composites that window alone, so our own
+            // windows are structurally absent and need no exclusion.
+            return try captureService.captureWindow(id: id)
+        }
+    }
+
+    // MARK: Finish / Cancel
+
+    func finishSeries() {
+        guard case .seriesActive = state, let session = seriesSession else { return }
+        guard !session.frames.isEmpty else {
+            cancelSeries()
+            return
+        }
+        tearDownSeriesUI()
+        state = .capturing
+
+        Task {
+            // Wait for in-flight PNG encodes so Done cannot outrun the last write.
+            for write in session.pendingWrites { await write.value }
+
+            state = .idle
+            isSeriesActive = false
+            seriesFrameCount = 0
+            seriesSession = nil
+            do {
+                let entry = try LibraryManager.shared.finalizeSeries(
+                    id: session.entryID,
+                    folderURL: session.folderURL,
+                    manifest: session.makeManifest(complete: true)
+                )
+                LibraryWindow.show(selecting: entry)
+            } catch {
+                LibraryWindow.showAll()
+                showError(error)
+            }
+        }
+    }
+
+    func cancelSeries() {
+        guard case .seriesActive = state, let session = seriesSession else { return }
+        tearDownSeriesUI()
+        state = .idle
+        isSeriesActive = false
+        seriesFrameCount = 0
+        seriesSession = nil
+
+        Task {
+            for write in session.pendingWrites { await write.value }
+            LibraryManager.shared.discardSeries(id: session.entryID, folderURL: session.folderURL)
+            LibraryWindow.showAll()
+        }
+    }
+
+    private func tearDownSeriesUI() {
+        seriesHUD?.dismiss()
+        seriesHUD = nil
+        seriesBorder?.hide()
+        seriesBorder = nil
+    }
+}
+
+/// Transfers exclusive ownership of a bitmap rep to a background encode.
+private struct PNGEncodeJob: @unchecked Sendable {
+    let rep: NSBitmapImageRep
+    let url: URL
 }

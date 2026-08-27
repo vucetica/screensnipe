@@ -17,6 +17,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var recordWindowItem: NSMenuItem?
     private var stopRecordingItem: NSMenuItem?
     private var pauseResumeItem: NSMenuItem?
+    private var seriesRegionItem: NSMenuItem?
+    private var seriesFullScreenItem: NSMenuItem?
+    private var seriesWindowItem: NSMenuItem?
+    private var finishSeriesItem: NSMenuItem?
+    private var cancelSeriesItem: NSMenuItem?
     private var libraryItem: NSMenuItem?
 
     // Audio menu items
@@ -27,6 +32,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var recordingObserver: AnyCancellable?
     private var pauseObserver: AnyCancellable?
     private var countdownObserver: AnyCancellable?
+    private var seriesObserver: AnyCancellable?
+    private var seriesFrameObserver: AnyCancellable?
     private var shortcutsObserver: AnyCancellable?
     private var blinkTimer: Timer?
     private var welcomePopover: NSPopover?
@@ -55,6 +62,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         observeShortcuts()
         startGlobalHotkeys()
         showWelcomePopoverIfFirstLaunch()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        // Without this the most recent annotation edits are lost on quit,
+        // because the auto-save is still waiting out its delay.
+        LibraryViewModel.shared.flushPendingSave()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -139,6 +152,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         recordItem.submenu = recordSubmenu
         menu.addItem(recordItem)
 
+        // Series submenu
+        let seriesItem = NSMenuItem(title: "Series", action: nil, keyEquivalent: "")
+        seriesItem.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Series")
+        let seriesSubmenu = NSMenu()
+
+        let seriesRG = NSMenuItem(title: "Region", action: #selector(seriesRegionAction), keyEquivalent: "")
+        seriesRG.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Region")
+        seriesSubmenu.addItem(seriesRG)
+        seriesRegionItem = seriesRG
+
+        let seriesFS = NSMenuItem(title: "Full Screen", action: #selector(seriesFullScreenAction), keyEquivalent: "")
+        seriesFS.image = NSImage(systemSymbolName: "rectangle.inset.filled", accessibilityDescription: "Full Screen")
+        seriesSubmenu.addItem(seriesFS)
+        seriesFullScreenItem = seriesFS
+
+        let seriesWD = NSMenuItem(title: "Window", action: #selector(seriesWindowAction), keyEquivalent: "")
+        seriesWD.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Window")
+        seriesSubmenu.addItem(seriesWD)
+        seriesWindowItem = seriesWD
+
+        seriesItem.submenu = seriesSubmenu
+        menu.addItem(seriesItem)
+
+        // Finish/Cancel Series (top-level, hidden when no session is running)
+        let finishItem = NSMenuItem(title: "Finish Series", action: #selector(finishSeries), keyEquivalent: "")
+        finishItem.isHidden = true
+        menu.addItem(finishItem)
+        finishSeriesItem = finishItem
+
+        let cancelItem = NSMenuItem(title: "Cancel Series", action: #selector(cancelSeries), keyEquivalent: "")
+        cancelItem.isHidden = true
+        menu.addItem(cancelItem)
+        cancelSeriesItem = cancelItem
+
         // Pause/Resume Recording (top-level, hidden when not recording)
         let pauseItem = NSMenuItem(title: "Pause Recording", action: #selector(togglePauseRecording), keyEquivalent: "")
         pauseItem.isHidden = true
@@ -191,6 +238,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .recordWindow: recordWindowItem,
             .stopRecording: stopRecordingItem,
             .pauseResumeRecording: pauseResumeItem,
+            .seriesRegion: seriesRegionItem,
+            .seriesFullScreen: seriesFullScreenItem,
+            .seriesWindow: seriesWindowItem,
+            .finishSeries: finishSeriesItem,
+            .cancelSeries: cancelSeriesItem,
             .openLibrary: libraryItem,
         ]
         for (action, menuItem) in actionToMenuItem {
@@ -211,6 +263,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .recordWindow: #selector(recordWindowAction),
             .stopRecording: #selector(stopRecording),
             .pauseResumeRecording: #selector(togglePauseRecording),
+            .seriesRegion: #selector(seriesRegionAction),
+            .seriesFullScreen: #selector(seriesFullScreenAction),
+            .seriesWindow: #selector(seriesWindowAction),
+            .finishSeries: #selector(finishSeries),
+            .cancelSeries: #selector(cancelSeries),
             .openLibrary: #selector(showLibrary),
         ]
         for (action, selector) in actionToSelector {
@@ -257,6 +314,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 } else {
                     self.coordinator.pauseRecording()
                 }
+            case .seriesRegion:
+                self.coordinator.startSeries(mode: .region)
+            case .seriesFullScreen:
+                self.coordinator.startSeries(mode: .fullScreen)
+            case .seriesWindow:
+                self.coordinator.startSeries(mode: .window)
+            case .snapSeriesFrame:
+                // No-ops unless a session is running; the coordinator guards.
+                self.coordinator.snapSeriesFrame()
+            case .finishSeries:
+                self.coordinator.finishSeries()
+            case .cancelSeries:
+                self.coordinator.cancelSeries()
             case .openLibrary:
                 LibraryWindow.show()
             }
@@ -274,6 +344,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .receive(on: RunLoop.main)
             .sink { [weak self] isPaused in
                 self?.updatePauseUI(isPaused: isPaused)
+            }
+
+        seriesObserver = coordinator.$isSeriesActive
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isActive in
+                self?.updateSeriesUI(isActive: isActive)
+            }
+
+        seriesFrameObserver = coordinator.$seriesFrameCount
+            .receive(on: RunLoop.main)
+            .sink { [weak self] count in
+                guard let self, self.coordinator.isSeriesActive else { return }
+                self.finishSeriesItem?.title = count == 1 ? "Finish Series (1 frame)" : "Finish Series (\(count) frames)"
             }
 
         countdownObserver = coordinator.$isCountingDown
@@ -303,6 +386,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             stopRecordingItem?.isHidden = true
             pauseResumeItem?.isHidden = true
             stopIconBlink()
+        }
+    }
+
+    private func updateSeriesUI(isActive: Bool) {
+        finishSeriesItem?.isHidden = !isActive
+        cancelSeriesItem?.isHidden = !isActive
+        // Starting a second session is blocked by the coordinator's busy guard;
+        // the status menu auto-enables its items, so setting isEnabled here
+        // would have no effect.
+
+        guard let button = statusItem?.button else { return }
+        if isActive {
+            // Static, not blinking: a series is idle between snaps, unlike a recording.
+            let config = NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor])
+            button.image = NSImage(systemSymbolName: "rectangle.stack.fill", accessibilityDescription: "Series in progress")?
+                .withSymbolConfiguration(config)
+            button.alphaValue = 1
+        } else if !coordinator.isRecording {
+            restoreDefaultIcon()
         }
     }
 
@@ -361,7 +463,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private func stopIconBlink() {
         blinkTimer?.invalidate()
         blinkTimer = nil
+        restoreDefaultIcon()
+    }
 
+    private func restoreDefaultIcon() {
         guard let button = statusItem?.button else { return }
         button.alphaValue = 1.0
         button.image = NSImage(systemSymbolName: "camera.viewfinder", accessibilityDescription: "Screen Snipe")
@@ -527,6 +632,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc func stopRecording() {
         coordinator.stopRecording()
+    }
+
+    @objc func seriesRegionAction() {
+        coordinator.startSeries(mode: .region)
+    }
+
+    @objc func seriesFullScreenAction() {
+        coordinator.startSeries(mode: .fullScreen)
+    }
+
+    @objc func seriesWindowAction() {
+        coordinator.startSeries(mode: .window)
+    }
+
+    @objc func finishSeries() {
+        coordinator.finishSeries()
+    }
+
+    @objc func cancelSeries() {
+        coordinator.cancelSeries()
+    }
+
+    @objc func previousFrame() {
+        LibraryViewModel.shared.goToPreviousFrame()
+    }
+
+    @objc func nextFrame() {
+        LibraryViewModel.shared.goToNextFrame()
     }
 
     @objc func showLibrary() {
