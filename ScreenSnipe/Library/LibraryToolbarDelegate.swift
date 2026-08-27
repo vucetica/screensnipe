@@ -14,6 +14,9 @@ private extension NSToolbarItem.Identifier {
     static let share = NSToolbarItem.Identifier("app.screensnipe.toolbar.share")
     static let copyLink = NSToolbarItem.Identifier("app.screensnipe.toolbar.copyLink")
     static let inspector = NSToolbarItem.Identifier("app.screensnipe.toolbar.inspector")
+    static let prevFrame = NSToolbarItem.Identifier("app.screensnipe.toolbar.prevFrame")
+    static let nextFrame = NSToolbarItem.Identifier("app.screensnipe.toolbar.nextFrame")
+    static let frameLabel = NSToolbarItem.Identifier("app.screensnipe.toolbar.frameLabel")
 }
 
 @MainActor
@@ -32,6 +35,11 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     private weak var copyLinkItem: NSToolbarItem?
     private weak var inspectorItem: NSToolbarItem?
     private weak var searchItem: NSSearchToolbarItem?
+    private weak var prevFrameItem: NSToolbarItem?
+    private weak var nextFrameItem: NSToolbarItem?
+    private weak var frameLabelItem: NSToolbarItem?
+    private weak var frameLabelField: NSTextField?
+    weak var toolbar: NSToolbar?
 
     override init() {
         super.init()
@@ -93,6 +101,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
                 self?.textCaptureItem?.isEnabled = hasImage
                 self?.shareItem?.isEnabled = hasMedia
                 self?.copyLinkItem?.isEnabled = hasMedia
+                self?.updateFrameItems(viewModel: viewModel)
             }
             .store(in: &cancellables)
     }
@@ -104,7 +113,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
         case .search:
             let item = NSSearchToolbarItem(itemIdentifier: .search)
             item.searchField.placeholderString = "Search"
-            item.searchField.toolTip = "Search by name, description, tag, or date.\nFilter with is:shared, is:image, or is:video."
+            item.searchField.toolTip = "Search by name, description, tag, or date.\nFilter with is:shared, is:image, is:video, or is:series."
             item.searchField.sendsWholeSearchString = false
             item.searchField.sendsSearchStringImmediately = true
             item.searchField.target = self
@@ -117,6 +126,7 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
                 ("Shared (is:shared)", "is:shared"),
                 ("Screenshots (is:image)", "is:image"),
                 ("Recordings (is:video)", "is:video"),
+                ("Series (is:series)", "is:series"),
             ]
             for (title, token) in filters {
                 let menuItem = NSMenuItem(title: title, action: #selector(searchFilterAction(_:)), keyEquivalent: "")
@@ -127,6 +137,43 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             item.searchField.searchMenuTemplate = filterMenu
 
             searchItem = item
+            return item
+
+        case .prevFrame:
+            let item = NSToolbarItem(itemIdentifier: .prevFrame)
+            item.label = "Previous Frame"
+            item.toolTip = "Go to the previous frame in this series"
+            item.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Previous Frame")
+            item.target = self
+            item.action = #selector(previousFrameAction)
+            item.isEnabled = false
+            prevFrameItem = item
+            return item
+
+        case .nextFrame:
+            let item = NSToolbarItem(itemIdentifier: .nextFrame)
+            item.label = "Next Frame"
+            item.toolTip = "Go to the next frame in this series"
+            item.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Next Frame")
+            item.target = self
+            item.action = #selector(nextFrameAction)
+            item.isEnabled = false
+            nextFrameItem = item
+            return item
+
+        case .frameLabel:
+            let item = NSToolbarItem(itemIdentifier: .frameLabel)
+            item.label = "Frame"
+            let field = NSTextField(labelWithString: "")
+            field.font = .monospacedDigitSystemFont(ofSize: NSFont.smallSystemFontSize, weight: .regular)
+            field.textColor = .secondaryLabelColor
+            field.alignment = .center
+            field.setContentHuggingPriority(.defaultHigh, for: .horizontal)
+            // Fixed width so the toolbar does not reflow as the digits change.
+            field.widthAnchor.constraint(greaterThanOrEqualToConstant: 58).isActive = true
+            item.view = field
+            frameLabelItem = item
+            frameLabelField = field
             return item
 
         case .undo:
@@ -284,7 +331,11 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        toolbarDefaultItemIdentifiers(toolbar)
+        // The frame controls are inserted and removed on demand rather than
+        // listed by default: NSToolbarItem.isHidden needs macOS 15, and leaving
+        // them permanently visible would put dead chevrons next to every
+        // screenshot.
+        toolbarDefaultItemIdentifiers(toolbar) + [.prevFrame, .frameLabel, .nextFrame]
     }
 
     // MARK: - Validation
@@ -309,8 +360,51 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
             return hasImage
         case .inspector:
             return true
+        case .prevFrame:
+            return viewModel.canGoToPreviousFrame
+        case .nextFrame:
+            return viewModel.canGoToNextFrame
+        case .frameLabel:
+            return viewModel.currentFrameIndex != nil
         default:
             return true
+        }
+    }
+
+    /// Frame navigation only means anything for series entries, so the controls
+    /// hide entirely rather than sitting greyed out for every screenshot.
+    private func updateFrameItems(viewModel: LibraryViewModel) {
+        let isSeries = viewModel.currentFrameIndex != nil
+        setFrameItemsVisible(isSeries)
+        prevFrameItem?.isEnabled = viewModel.canGoToPreviousFrame
+        nextFrameItem?.isEnabled = viewModel.canGoToNextFrame
+        if let position = viewModel.currentFramePosition {
+            frameLabelField?.stringValue = "\(position) of \(viewModel.seriesFrames.count)"
+        } else {
+            frameLabelField?.stringValue = ""
+        }
+    }
+
+    private static let frameItemIdentifiers: [NSToolbarItem.Identifier] = [.prevFrame, .frameLabel, .nextFrame]
+
+    private func setFrameItemsVisible(_ visible: Bool) {
+        guard let toolbar else { return }
+        let present = toolbar.items.contains { $0.itemIdentifier == .prevFrame }
+        guard present != visible else { return }
+
+        if visible {
+            // Insert ahead of Undo, which is the first detail-side item.
+            var insertIndex = toolbar.items.firstIndex { $0.itemIdentifier == .undo } ?? toolbar.items.count
+            for identifier in Self.frameItemIdentifiers {
+                toolbar.insertItem(withItemIdentifier: identifier, at: insertIndex)
+                insertIndex += 1
+            }
+        } else {
+            for identifier in Self.frameItemIdentifiers {
+                if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) {
+                    toolbar.removeItem(at: index)
+                }
+            }
         }
     }
 
@@ -349,6 +443,14 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
         searchItem?.searchField.stringValue = query
     }
 
+    @objc private func previousFrameAction() {
+        LibraryViewModel.shared.goToPreviousFrame()
+    }
+
+    @objc private func nextFrameAction() {
+        LibraryViewModel.shared.goToNextFrame()
+    }
+
     @objc private func undoAction() {
         LibraryViewModel.shared.annotationStore.undo()
     }
@@ -378,7 +480,15 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
         let entryName = viewModel.selectedExportName
         if let image = viewModel.selectedImage {
             let store = viewModel.annotationStore
-            ImageExportService.save(image: image, annotations: store.annotations, cropRect: store.cropRect, defaultName: entryName)
+            if viewModel.currentFrameIndex != nil {
+                ImageExportService.saveSeries(
+                    currentFrame: .init(image: image, annotations: store.annotations, cropRect: store.cropRect),
+                    allFrames: { viewModel.seriesExportFrames() },
+                    defaultName: entryName
+                )
+            } else {
+                ImageExportService.save(image: image, annotations: store.annotations, cropRect: store.cropRect, defaultName: entryName)
+            }
         } else if let videoURL = viewModel.selectedVideoURL {
             VideoExportService.save(videoURL: videoURL, defaultName: entryName)
         }

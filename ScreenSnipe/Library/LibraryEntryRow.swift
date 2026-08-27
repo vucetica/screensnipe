@@ -3,6 +3,10 @@ import SwiftUI
 struct LibraryEntryRow: View {
     let entry: LibraryEntry
 
+    /// Frame count for series entries. Decoded off the render path, the way
+    /// AsyncThumbnailView loads thumbnails, so reload() stays an existence check.
+    @State private var frameCount: Int?
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
@@ -16,10 +20,10 @@ struct LibraryEntryRow: View {
                         .lineLimit(1)
 
                     HStack(spacing: 4) {
-                        Image(systemName: entry.mediaType == .image ? "photo" : "video")
+                        Image(systemName: entry.mediaType.iconName)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
-                        Text(entry.mediaType == .image ? "Screenshot" : "Recording")
+                        Text(subtitle)
                             .font(.caption2)
                             .foregroundStyle(.secondary)
                         if entry.metadata.shareURL != nil {
@@ -41,5 +45,21 @@ struct LibraryEntryRow: View {
             }
         }
         .padding(.vertical, 6)
+        .task(id: entry.id) {
+            guard entry.mediaType == .series else {
+                frameCount = nil
+                return
+            }
+            let url = entry.seriesManifestURL
+            frameCount = await Task.detached(priority: .utility) {
+                (try? SeriesManifest.load(from: url))?.frames.count
+            }.value
+        }
+    }
+
+    private var subtitle: String {
+        guard entry.mediaType == .series else { return entry.mediaType.displayName }
+        guard let frameCount else { return "Series" }
+        return frameCount == 1 ? "1 frame" : "\(frameCount) frames"
     }
 }

@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 
 @MainActor
 enum ImageExportService {
@@ -168,6 +169,111 @@ enum ImageExportService {
             try data?.write(to: url)
         } catch {
             ErrorReporter.report(error, context: "Failed to save image")
+        }
+    }
+
+    // MARK: - Series Export
+
+    /// One frame of a series, ready to flatten.
+    struct SeriesExportFrame: Sendable {
+        let image: NSImage
+        let annotations: [AnyAnnotation]
+        let cropRect: CGRect?
+    }
+
+    /// Saves every frame of a series as one multi-page TIFF or PDF.
+    ///
+    /// TIFF is offered here rather than used as the library's storage format:
+    /// appending a frame to a multi-page TIFF means rewriting the whole file
+    /// with every frame resident in memory, and it is far larger than PNG.
+    /// Handing the whole series to someone else is where one file earns its keep.
+    /// The chosen file type decides the scope: PNG and JPEG write the frame
+    /// currently open in the editor, TIFF and PDF write the whole series as one
+    /// multi-page file. `allFrames` is only consulted for the latter, so picking
+    /// PNG never pays the cost of loading every frame.
+    static func saveSeries(
+        currentFrame: SeriesExportFrame,
+        allFrames: () -> [SeriesExportFrame],
+        defaultName: String? = nil
+    ) {
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.tiff, .pdf, .png, .jpeg]
+        let baseName = defaultName ?? "Series"
+        panel.nameFieldStringValue = "\(baseName).tiff"
+        panel.canCreateDirectories = true
+        panel.message = "TIFF and PDF save every frame in one file. PNG and JPEG save the current frame."
+
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        switch url.pathExtension.lowercased() {
+        case "tiff", "tif", "pdf":
+            let frames = allFrames()
+            guard !frames.isEmpty else { return }
+            let flattened = frames.map {
+                flatten(image: $0.image, annotations: $0.annotations, cropRect: $0.cropRect)
+            }
+            do {
+                if url.pathExtension.lowercased() == "pdf" {
+                    try writePDF(flattened, to: url)
+                } else {
+                    try writeMultiPageTIFF(flattened, to: url)
+                }
+            } catch {
+                ErrorReporter.report(error, context: "Failed to save series")
+            }
+        default:
+            let flattened = flatten(
+                image: currentFrame.image,
+                annotations: currentFrame.annotations,
+                cropRect: currentFrame.cropRect
+            )
+            write(flattened, to: url)
+        }
+    }
+
+    /// Encodes and writes a flattened image, picking the format from the
+    /// extension the save panel produced.
+    private static func write(_ image: NSImage, to url: URL) {
+        let isJPEG = ["jpg", "jpeg"].contains(url.pathExtension.lowercased())
+        guard let tiffData = image.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData) else { return }
+        let data = isJPEG
+            ? bitmapRep.representation(using: .jpeg, properties: [.compressionFactor: 0.9])
+            : bitmapRep.representation(using: .png, properties: [:])
+        do {
+            try data?.write(to: url)
+        } catch {
+            ErrorReporter.report(error, context: "Failed to save image")
+        }
+    }
+
+    private static func writeMultiPageTIFF(_ images: [NSImage], to url: URL) throws {
+        let reps: [NSBitmapImageRep] = images.compactMap { image in
+            guard let tiff = image.tiffRepresentation else { return nil }
+            return NSBitmapImageRep(data: tiff)
+        }
+        guard !reps.isEmpty, let data = NSBitmapImageRep.representationOfImageReps(
+            in: reps,
+            using: .tiff,
+            properties: [.compressionMethod: NSBitmapImageRep.TIFFCompression.lzw.rawValue]
+        ) else {
+            throw NSError(domain: "ImageExportService", code: 10, userInfo: [
+                NSLocalizedDescriptionKey: "Could not build a multi-page TIFF from the series frames.",
+            ])
+        }
+        try data.write(to: url, options: .atomic)
+    }
+
+    private static func writePDF(_ images: [NSImage], to url: URL) throws {
+        let document = PDFDocument()
+        for (index, image) in images.enumerated() {
+            guard let page = PDFPage(image: image) else { continue }
+            document.insert(page, at: index)
+        }
+        guard document.pageCount > 0, document.write(to: url) else {
+            throw NSError(domain: "ImageExportService", code: 11, userInfo: [
+                NSLocalizedDescriptionKey: "Could not build a PDF from the series frames.",
+            ])
         }
     }
 

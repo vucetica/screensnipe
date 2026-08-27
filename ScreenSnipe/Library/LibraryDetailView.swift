@@ -10,7 +10,14 @@ struct LibraryDetailView: View {
             if viewModel.selectedEntryIDs.count >= 2 {
                 multiSelectionPlaceholder
             } else if let image = viewModel.selectedImage {
-                imageEditor(image: image)
+                if viewModel.currentFrameIndex != nil {
+                    VStack(spacing: 0) {
+                        imageEditor(image: image)
+                        SeriesFilmstripView(viewModel: viewModel)
+                    }
+                } else {
+                    imageEditor(image: image)
+                }
             } else if let videoURL = viewModel.selectedVideoURL {
                 VideoPlayerView(url: videoURL)
             } else {

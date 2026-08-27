@@ -11,6 +11,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 ### Capture
 - **Screenshots**: Full screen, region selection, or window picker
 - **Screen recording**: Full screen, region, or window with pause/resume, 3-2-1 countdown, and recording border indicator
+- **Series capture**: Pick a region, window, or full screen once, then snap as many stills of that target as you need from a floating control panel or with a shortcut (⌃⇧Space). All frames land in a single library entry
 - **Audio recording**: System audio capture and microphone input with device selection
 - **Post-capture behavior**: Open in editor, copy to clipboard, or both (configurable)
 
@@ -22,17 +23,18 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 - **Undo/Redo**: Full undo/redo support for all annotations
 - **Text recognition (OCR)**: Extract text from captures using the Vision framework; AI-powered text cleanup on macOS 26+
 - **Tool shortcuts**: V (Select), A (Arrow), T (Text), S (Shape), L (Line), H (Highlighter), B (Blur), C (Crop)
+- **Series frame navigation**: Annotate every frame of a series independently; jump between frames with the filmstrip under the canvas, the toolbar chevrons, or ⌥← / ⌥→. Click the filmstrip to focus it and plain ← / → step through frames (the canvas keeps plain arrows for nudging a selected annotation)
 
 ### Library
 - **Persistent library**: All captures auto-saved to `~/Pictures/ScreenSnipe/` (configurable location)
 - **Library browser**: NavigationSplitView sidebar with embedded editor and video player
 - **Multi-selection**: Cmd/Shift+Click to select multiple items in the sidebar
-- **Search**: Toolbar search field filters the sidebar by name, description, or tag (case-insensitive substring match); `is:shared`, `is:image`, and `is:video` narrow results to shared captures, screenshots, or recordings (also available from the search field's magnifier menu)
-- **Stitch Together**: Combine multiple screenshots and recordings into a single video with configurable pauses and image durations, drag-to-reorder, and automatic letterboxing
+- **Search**: Toolbar search field filters the sidebar by name, description, or tag (case-insensitive substring match); `is:shared`, `is:image`, `is:video`, and `is:series` narrow results to shared captures, screenshots, recordings, or series (also available from the search field's magnifier menu)
+- **Stitch Together**: Combine multiple screenshots, recordings, and series into a single video with configurable pauses and image durations, drag-to-reorder, and automatic letterboxing. A series expands to one clip per frame, so a single series can be stitched on its own
 - **Auto-save**: Annotations persist automatically on edit (300ms debounce)
 
 ### Export
-- **Save**: Export flattened image as PNG/JPEG
+- **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF or PDF
 - **Copy to clipboard**: One-click copy with toast confirmation
 - **Share**: System share sheet integration
 - **Copy iCloud Link**: Publish a capture as a public iCloud download link anyone can open in a browser; revoke via Stop Sharing (requires iCloud provisioning, see [developer/ICLOUD-SHARING.md](developer/ICLOUD-SHARING.md))
@@ -83,6 +85,8 @@ ScreenSnipe runs as a menu bar app. Click the camera icon in the menu bar to acc
 - **Record > Region** — Record a selected screen region
 - **Record > Window** — Record a specific window
 - **Stop Recording** (Cmd+Shift+9) — Stop an active recording
+- **Series > Region / Full Screen / Window** — Start a series of stills of one target
+- **Snap Series Frame** (Ctrl+Shift+Space) — Capture the next frame; **Ctrl+Shift+Return** finishes, **Ctrl+Shift+Esc** cancels
 - **Library** (Cmd+L) — Open the capture library
 - **Preferences** (Cmd+,) — Configure shortcuts and library storage location
 
@@ -117,7 +121,17 @@ Captures are stored in `~/Pictures/ScreenSnipe/` (configurable in Preferences). 
     recording.mp4           # Video recording
     annotations.json
     thumbnail.png
+  2024-01-15-11-42-08-901/
+    series.json             # Frame order, count, and capture target
+    frames/
+      frame-001.png         # One file per frame
+      frame-001.json        # Annotations for that frame
+      frame-002.png
+      frame-002.json
+    thumbnail.png
 ```
+
+Series frames are stored as individual PNGs rather than a multi-page TIFF: appending a frame to a TIFF means rewriting the whole file with every frame held in memory, and per-frame annotations need a sidecar either way. Multi-page TIFF is offered as an export format instead. Frame indices in `series.json` are never renumbered, so deleting a frame leaves the remaining files untouched.
 
 ## Website
 

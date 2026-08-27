@@ -16,6 +16,11 @@ struct ShortcutsPreferencesTab: View {
                     shortcutRow(for: action)
                 }
             }
+            Section("Series") {
+                ForEach(ShortcutAction.seriesActions, id: \.self) { action in
+                    shortcutRow(for: action)
+                }
+            }
             Section("App") {
                 ForEach(ShortcutAction.appActions, id: \.self) { action in
                     shortcutRow(for: action)

@@ -47,6 +47,7 @@ enum LibraryWindow {
         let toolbarDelegate = LibraryToolbarDelegate()
         let toolbar = NSToolbar(identifier: "LibraryToolbar")
         toolbar.delegate = toolbarDelegate
+        toolbarDelegate.toolbar = toolbar
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = false
         newWindow.toolbar = toolbar
@@ -215,11 +216,49 @@ enum LibraryWindow {
         recordItem.submenu = recordSubmenu
         actionsMenu.addItem(recordItem)
 
+        // Series submenu
+        let seriesItem = NSMenuItem(title: "Series", action: nil, keyEquivalent: "")
+        seriesItem.image = NSImage(systemSymbolName: "rectangle.stack", accessibilityDescription: "Series")
+        let seriesSubmenu = NSMenu()
+        seriesSubmenu.autoenablesItems = false
+        let serRegion = NSMenuItem(title: "Region", action: #selector(AppDelegate.seriesRegionAction), keyEquivalent: "")
+        serRegion.target = appDelegate
+        serRegion.image = NSImage(systemSymbolName: "rectangle.dashed", accessibilityDescription: "Region")
+        seriesSubmenu.addItem(serRegion)
+        let serFullScreen = NSMenuItem(title: "Full Screen", action: #selector(AppDelegate.seriesFullScreenAction), keyEquivalent: "")
+        serFullScreen.target = appDelegate
+        serFullScreen.image = NSImage(systemSymbolName: "rectangle.inset.filled", accessibilityDescription: "Full Screen")
+        seriesSubmenu.addItem(serFullScreen)
+        let serWindow = NSMenuItem(title: "Window", action: #selector(AppDelegate.seriesWindowAction), keyEquivalent: "")
+        serWindow.target = appDelegate
+        serWindow.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Window")
+        seriesSubmenu.addItem(serWindow)
+        seriesItem.submenu = seriesSubmenu
+        actionsMenu.addItem(seriesItem)
+
+        actionsMenu.addItem(.separator())
+
+        // Frame navigation. These live in a menu rather than a key monitor
+        // because CanvasView consumes bare arrow keys to nudge a selected
+        // annotation.
+        let prevFrame = NSMenuItem(title: "Previous Frame", action: #selector(AppDelegate.previousFrame), keyEquivalent: "\u{F702}")
+        prevFrame.target = appDelegate
+        prevFrame.keyEquivalentModifierMask = [.option]
+        prevFrame.image = NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Previous Frame")
+        actionsMenu.addItem(prevFrame)
+
+        let nextFrame = NSMenuItem(title: "Next Frame", action: #selector(AppDelegate.nextFrame), keyEquivalent: "\u{F703}")
+        nextFrame.target = appDelegate
+        nextFrame.keyEquivalentModifierMask = [.option]
+        nextFrame.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: "Next Frame")
+        actionsMenu.addItem(nextFrame)
+
         // Apply current shortcuts to Actions items
         let shortcuts = ShortcutManager.shared
         let shortcutMap: [(ShortcutAction, NSMenuItem)] = [
             (.captureRegion, capRegion), (.captureFullScreen, capFullScreen), (.captureWindow, capWindow),
             (.recordRegion, recRegion), (.recordFullScreen, recFullScreen), (.recordWindow, recWindow),
+            (.seriesRegion, serRegion), (.seriesFullScreen, serFullScreen), (.seriesWindow, serWindow),
         ]
         for (action, item) in shortcutMap {
             let s = shortcuts.shortcut(for: action)
