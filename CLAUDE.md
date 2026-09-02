@@ -17,6 +17,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 ## Versioning
 
 - Bump the **minor** version (second number) for releases: 1.1.0 → 1.2.0 → 1.3.0
+- Bump the **patch** version (third number) for a quick fix that ships on its own: 1.11.0 → 1.11.1
 - `CURRENT_PROJECT_VERSION` (build number) is managed automatically — do not change it manually
 
 ## Releasing
