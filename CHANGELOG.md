@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-09-02
+
 ### Fixed
 - The frozen screenshot behind the region-selection overlay no longer appears stretched and offset. The full-screen capture asked Core Graphics for the union of every on-screen window instead of the display's own bounds, so any window hanging past a screen edge made the captured image larger than the display; drawing it into the display-sized overlay then squeezed it. The capture is now pinned to the display the overlay covers, which also fixes the region crop landing on the wrong part of the picture.
 
@@ -102,7 +104,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.11.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.11.1...HEAD
+[1.11.1]: https://github.com/vucetica/screensnipe/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/vucetica/screensnipe/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/vucetica/screensnipe/compare/v1.9.0...v1.10.0
 [1.9.0]: https://github.com/vucetica/screensnipe/compare/v1.8.1...v1.9.0
