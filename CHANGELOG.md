@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- The frozen screenshot behind the region-selection overlay no longer appears stretched and offset. The full-screen capture asked Core Graphics for the union of every on-screen window instead of the display's own bounds, so any window hanging past a screen edge made the captured image larger than the display; drawing it into the display-sized overlay then squeezed it. The capture is now pinned to the display the overlay covers, which also fixes the region crop landing on the wrong part of the picture.
+
 ## [1.11.0] - 2026-08-27
 
 ### Added

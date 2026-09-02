@@ -42,6 +42,10 @@ final class CaptureCoordinator: ObservableObject {
     private var countdownOverlay: CountdownOverlay?
     private var recordingBorderWindow: RecordingBorderWindow?
     private var frozenScreenshot: CGImage?
+    /// Point size of the display `frozenScreenshot` was taken from, so the crop
+    /// uses the same display the overlay was drawn on even if the key window
+    /// (and with it `NSScreen.main`) has moved since.
+    private var frozenScreenshotPointSize: CGSize?
     private var writerErrorObserver: AnyCancellable?
 
     private var seriesSession: SeriesSession?
@@ -126,7 +130,9 @@ final class CaptureCoordinator: ObservableObject {
         state = .capturing
         LibraryWindow.hideAll()
         do {
-            let image = try captureService.captureFullScreen()
+            let image = try captureService.captureFullScreen(
+                displayID: Self.displayID(for: NSScreen.main)
+            )
             openEditor(with: image)
         } catch {
             state = .idle
@@ -144,19 +150,26 @@ final class CaptureCoordinator: ObservableObject {
         // this avoids a visible "bounce" from the library window disappearing.
         // The full-screen overlay will cover the library window anyway.
         do {
-            let screenshot = try captureService.captureFullScreenCGImage()
+            // Pin the display before capturing: the overlay, the frozen image
+            // and the crop all have to describe the same one.
+            let screen = NSScreen.main ?? NSScreen.screens[0]
+            let displayBounds = CGDisplayBounds(Self.displayID(for: screen))
+            let screenshot = try captureService.captureFullScreenCGImage(
+                displayID: Self.displayID(for: screen)
+            )
             LibraryWindow.hideAll()
             frozenScreenshot = screenshot
-            let screen = NSScreen.main ?? NSScreen.screens[0]
-            let displayImage = NSImage(cgImage: screenshot, size: screen.frame.size)
+            frozenScreenshotPointSize = displayBounds.size
+            let displayImage = NSImage(cgImage: screenshot, size: displayBounds.size)
 
-            let window = RegionSelectionWindow(frozenImage: displayImage) { [weak self] region in
+            let window = RegionSelectionWindow(screen: screen, frozenImage: displayImage) { [weak self] region in
                 guard let self else { return }
                 self.captureRegionFromFrozen(region)
                 self.regionSelectionWindow?.close()
                 self.regionSelectionWindow = nil
             } onCancel: { [weak self] in
                 self?.frozenScreenshot = nil
+                self?.frozenScreenshotPointSize = nil
                 self?.cancel()
             }
             regionSelectionWindow = window
@@ -176,15 +189,16 @@ final class CaptureCoordinator: ObservableObject {
 
     private func captureRegionFromFrozen(_ region: CGRect) {
         state = .capturing
-        guard let screenshot = frozenScreenshot else {
+        guard let screenshot = frozenScreenshot,
+              let pointSize = frozenScreenshotPointSize else {
             state = .idle
             LibraryWindow.showAll()
             return
         }
         frozenScreenshot = nil
-        let screen = NSScreen.main ?? NSScreen.screens[0]
+        frozenScreenshotPointSize = nil
         do {
-            let image = try captureService.cropRegion(from: screenshot, region: region, screenSize: screen.frame.size)
+            let image = try captureService.cropRegion(from: screenshot, region: region, screenSize: pointSize)
             openEditor(with: image)
         } catch {
             state = .idle
@@ -545,15 +559,15 @@ extension CaptureCoordinator {
     private func beginSeriesRegionSelection() {
         state = .selectingRegion
         do {
-            let screenshot = try captureService.captureFullScreenCGImage()
-            LibraryWindow.hideAll()
             // Pin the display the overlay is drawn on: the region rect is
             // relative to it, and NSScreen.main can move later in the session.
             let screen = NSScreen.main ?? NSScreen.screens[0]
             let regionDisplayID = Self.displayID(for: screen)
-            let displayImage = NSImage(cgImage: screenshot, size: screen.frame.size)
+            let screenshot = try captureService.captureFullScreenCGImage(displayID: regionDisplayID)
+            LibraryWindow.hideAll()
+            let displayImage = NSImage(cgImage: screenshot, size: CGDisplayBounds(regionDisplayID).size)
 
-            let window = RegionSelectionWindow(frozenImage: displayImage) { [weak self] region in
+            let window = RegionSelectionWindow(screen: screen, frozenImage: displayImage) { [weak self] region in
                 guard let self else { return }
                 self.regionSelectionWindow?.close()
                 self.regionSelectionWindow = nil
@@ -783,15 +797,15 @@ extension CaptureCoordinator {
     private func captureSeriesTarget(_ target: SeriesSession.Target) throws -> NSImage {
         switch target {
         case .fullScreen(let displayID):
-            let screen = Self.screen(for: displayID)
-            let cgImage = try captureService.captureExcludingOwnWindows(bounds: CGDisplayBounds(displayID))
-            return captureService.makeStableImage(from: cgImage, size: screen.frame.size)
+            let bounds = CGDisplayBounds(displayID)
+            let cgImage = try captureService.captureExcludingOwnWindows(bounds: bounds)
+            return captureService.makeStableImage(from: cgImage, size: bounds.size)
         case .region(let region, let displayID):
             // Reuse the frozen-crop math the screenshot path uses, so region
             // coordinates stay handled in exactly one place.
-            let screen = Self.screen(for: displayID)
-            let full = try captureService.captureExcludingOwnWindows(bounds: CGDisplayBounds(displayID))
-            return try captureService.cropRegion(from: full, region: region, screenSize: screen.frame.size)
+            let bounds = CGDisplayBounds(displayID)
+            let full = try captureService.captureExcludingOwnWindows(bounds: bounds)
+            return try captureService.cropRegion(from: full, region: region, screenSize: bounds.size)
         case .window(let id, _, _):
             // .optionIncludingWindow composites that window alone, so our own
             // windows are structurally absent and need no exclusion.

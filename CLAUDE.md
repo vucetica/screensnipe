@@ -72,6 +72,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 ## Key Patterns
 
 - CGWindowListCreateImage for capture (not SCScreenshotManager) — more reliable with TCC
+- **Never pass `.null` as CGWindowListCreateImage's `screenBounds`**: it means "union of every on-screen window", so one window hanging past a screen edge yields an image bigger than the display. Always pass `CGDisplayBounds(displayID)` and derive the point size from the same rect, so the frozen overlay and the region crop agree with the display.
 - ScreenCaptureKit only used for `availableWindows()` metadata
 - TextTool must inherit NSObject for NSTextFieldDelegate conformance
 - NSTextFieldDelegate `controlTextDidEndEditing` must be `nonisolated` with `Task { @MainActor in }` wrapper
