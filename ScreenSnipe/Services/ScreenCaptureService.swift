@@ -34,9 +34,10 @@ final class ScreenCaptureService {
 
     // MARK: - Full Screen Capture
 
-    func captureFullScreen() throws -> NSImage {
+    func captureFullScreen(displayID: CGDirectDisplayID = CGMainDisplayID()) throws -> NSImage {
+        let bounds = CGDisplayBounds(displayID)
         guard let cgImage = CGWindowListCreateImage(
-            .null,
+            bounds,
             .optionOnScreenOnly,
             kCGNullWindowID,
             [.boundsIgnoreFraming]
@@ -44,8 +45,7 @@ final class ScreenCaptureService {
             throw CaptureError.captureFailed("CGWindowListCreateImage returned nil.")
         }
 
-        let screen = NSScreen.main ?? NSScreen.screens[0]
-        return makeStableImage(from: cgImage, size: screen.frame.size)
+        return makeStableImage(from: cgImage, size: bounds.size)
     }
 
     // MARK: - Region Capture
@@ -84,10 +84,15 @@ final class ScreenCaptureService {
 
     // MARK: - Frozen Screen Capture
 
-    /// Captures the full screen as a raw CGImage (for frozen overlay + crop workflow).
-    func captureFullScreenCGImage() throws -> CGImage {
+    /// Captures one display as a raw CGImage (for frozen overlay + crop workflow).
+    ///
+    /// The bounds must be passed explicitly. A `.null` rect here means "the
+    /// union of every on-screen window", and a single window hanging past a
+    /// screen edge makes that union larger than the display, so the frozen
+    /// image no longer lines up with the overlay drawn over the display.
+    func captureFullScreenCGImage(displayID: CGDirectDisplayID) throws -> CGImage {
         guard let cgImage = CGWindowListCreateImage(
-            .null,
+            CGDisplayBounds(displayID),
             .optionOnScreenOnly,
             kCGNullWindowID,
             [.boundsIgnoreFraming]

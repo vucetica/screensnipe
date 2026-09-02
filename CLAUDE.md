@@ -17,6 +17,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 ## Versioning
 
 - Bump the **minor** version (second number) for releases: 1.1.0 → 1.2.0 → 1.3.0
+- Bump the **patch** version (third number) for a quick fix that ships on its own: 1.11.0 → 1.11.1
 - `CURRENT_PROJECT_VERSION` (build number) is managed automatically — do not change it manually
 
 ## Releasing
@@ -72,6 +73,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 ## Key Patterns
 
 - CGWindowListCreateImage for capture (not SCScreenshotManager) — more reliable with TCC
+- **Never pass `.null` as CGWindowListCreateImage's `screenBounds`**: it means "union of every on-screen window", so one window hanging past a screen edge yields an image bigger than the display. Always pass `CGDisplayBounds(displayID)` and derive the point size from the same rect, so the frozen overlay and the region crop agree with the display.
 - ScreenCaptureKit only used for `availableWindows()` metadata
 - TextTool must inherit NSObject for NSTextFieldDelegate conformance
 - NSTextFieldDelegate `controlTextDidEndEditing` must be `nonisolated` with `Task { @MainActor in }` wrapper
