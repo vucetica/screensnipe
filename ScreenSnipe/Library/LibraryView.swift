@@ -7,7 +7,12 @@ struct LibraryView: View {
         NavigationSplitView {
             LibrarySidebar(viewModel: viewModel)
         } detail: {
-            LibraryDetailView(viewModel: viewModel, annotationStore: viewModel.annotationStore)
+            LibraryDetailView(
+                viewModel: viewModel,
+                annotationStore: viewModel.annotationStore,
+                trimStore: viewModel.trimStore,
+                playback: viewModel.playbackController
+            )
                 .inspector(isPresented: $viewModel.showInspector) {
                     PropertyPanel(store: viewModel.annotationStore)
                         .inspectorColumnWidth(min: 200, ideal: 300, max: 300)

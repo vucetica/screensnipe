@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-09-20
+
+### Added
+- **Trim a recording** without changing the file. Select a recording in the library and a filmstrip trim bar appears under the player, with draggable start and end handles, the region outside the selection dimmed, and a playhead. Playback in the library is bounded to the selection, and saving, sharing, copying an iCloud link, and stitching all use only the selected range. The `.mp4` on disk is never rewritten, so you can come back later and widen a trim you already made, the same way image crops work.
+- Trim keyboard controls: Left and Right move the selected handle by one frame, Up and Down switch which handle is selected, `[` and `]` snap the start or end to the playhead, and Escape clears the trim.
+- Trimmed recordings show a scissors badge in the sidebar, and their thumbnail is regenerated from the new start frame so the list no longer shows a frame you cut away.
+
+### Changed
+- Trimming a recording that has a published iCloud link revokes that link. The published copy is whatever was uploaded at the time, so leaving it alive would keep handing out the footage you just cut.
+- A trimmed export re-encodes the video, which takes longer than the plain copy an untrimmed export does. Compressed video can only be cut on a keyframe, and recordings carry one per second, so a copy-based trim would start up to a second away from where you put the handle. Untrimmed saves are unchanged and still lossless.
+
 ## [1.11.1] - 2026-09-02
 
 ### Fixed
@@ -104,7 +115,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.11.1...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.12.0...HEAD
+[1.12.0]: https://github.com/vucetica/screensnipe/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/vucetica/screensnipe/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/vucetica/screensnipe/compare/v1.10.0...v1.11.0
 [1.10.0]: https://github.com/vucetica/screensnipe/compare/v1.9.0...v1.10.0

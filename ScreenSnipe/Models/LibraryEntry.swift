@@ -40,6 +40,16 @@ struct CaptureMetadata: Codable, Sendable, Equatable {
     var shareURL: URL?
     /// Date after which the published iCloud link stops working (system-determined).
     var shareExpiration: Date?
+    /// Non-destructive time selection for a recording. The `.mp4` is never
+    /// rewritten; export paths apply this range on the way out.
+    ///
+    /// It lives here rather than in `annotations.json` because `metadata.json`
+    /// is read for every entry during `LibraryManager.reload()`, so the trim is
+    /// already in memory when the sidebar draws a row and when
+    /// `StitchConfiguration.resolvedSources()` builds its sources. From the
+    /// annotation sidecar, which is only read for the selected entry, both of
+    /// those would need a disk read per entry.
+    var trim: VideoTrimRange?
 
     enum CodingKeys: String, CodingKey {
         case name
@@ -47,6 +57,7 @@ struct CaptureMetadata: Codable, Sendable, Equatable {
         case tags
         case shareURL
         case shareExpiration
+        case trim
     }
 
     init(name: String? = nil, description: String? = nil, tags: [String] = []) {
@@ -62,6 +73,7 @@ struct CaptureMetadata: Codable, Sendable, Equatable {
         self.tags = try container.decodeIfPresent([String].self, forKey: .tags) ?? []
         self.shareURL = try container.decodeIfPresent(URL.self, forKey: .shareURL)
         self.shareExpiration = try container.decodeIfPresent(Date.self, forKey: .shareExpiration)
+        self.trim = try container.decodeIfPresent(VideoTrimRange.self, forKey: .trim)
     }
 }
 
@@ -115,5 +127,15 @@ struct LibraryEntry: Identifiable, Sendable, Equatable {
 
     var thumbnailURL: URL {
         folderURL.appendingPathComponent("thumbnail.png")
+    }
+
+    /// Changes whenever something that alters the rendered thumbnail changes.
+    ///
+    /// `thumbnailURL` is stable while the PNG behind it is rewritten, so views
+    /// keyed on the URL alone would keep showing the old frame until relaunch.
+    /// Trimming regenerates the thumbnail from the new start time, so the start
+    /// is what the token is derived from.
+    var thumbnailVersion: Int {
+        metadata.trim?.start.hashValue ?? 0
     }
 }

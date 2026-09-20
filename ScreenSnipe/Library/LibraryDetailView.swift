@@ -4,6 +4,8 @@ import AVKit
 struct LibraryDetailView: View {
     @ObservedObject var viewModel: LibraryViewModel
     @ObservedObject var annotationStore: AnnotationStore
+    @ObservedObject var trimStore: VideoTrimStore
+    @ObservedObject var playback: VideoPlaybackController
 
     var body: some View {
         Group {
@@ -19,7 +21,16 @@ struct LibraryDetailView: View {
                     imageEditor(image: image)
                 }
             } else if let videoURL = viewModel.selectedVideoURL {
-                VideoPlayerView(url: videoURL)
+                // Mirrors the series layout above: the media fills the space and
+                // its strip hugs the bottom edge.
+                VStack(spacing: 0) {
+                    VideoPlayerView(url: videoURL, trim: trimStore.effectiveRange, controller: playback)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    VideoTrimBarView(store: trimStore, playback: playback, videoURL: videoURL)
+                        // Resets the bar's @State (thumbnails, active handle,
+                        // measured width) when one recording replaces another.
+                        .id(videoURL)
+                }
             } else {
                 VStack(spacing: 8) {
                     Image(systemName: "photo.on.rectangle.angled")
@@ -52,28 +63,5 @@ struct LibraryDetailView: View {
     private func imageEditor(image: NSImage) -> some View {
         CanvasRepresentable(image: image, store: annotationStore, activeTool: $viewModel.activeTool)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-}
-
-// MARK: - Video Player (NSViewRepresentable)
-
-/// Custom NSViewRepresentable wrapping AVPlayerView directly.
-/// Avoids _AVKit_SwiftUI framework which crashes on macOS 26.3
-/// during class metadata initialization in TestFlight/Release builds.
-struct VideoPlayerView: NSViewRepresentable {
-    let url: URL
-
-    func makeNSView(context: Context) -> AVPlayerView {
-        let playerView = AVPlayerView()
-        playerView.controlsStyle = .floating
-        playerView.player = AVPlayer(url: url)
-        return playerView
-    }
-
-    func updateNSView(_ playerView: AVPlayerView, context: Context) {
-        let currentURL = (playerView.player?.currentItem?.asset as? AVURLAsset)?.url
-        guard currentURL != url else { return }
-        playerView.player?.pause()
-        playerView.player = AVPlayer(url: url)
     }
 }

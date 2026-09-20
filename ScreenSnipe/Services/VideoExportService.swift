@@ -6,7 +6,10 @@ import UniformTypeIdentifiers
 @MainActor
 enum VideoExportService {
 
-    static func save(videoURL: URL, defaultName: String? = nil) {
+    /// - Parameter trim: the entry's stored range, or nil to export the whole
+    ///   recording. When nil the untrimmed paths below are byte-for-byte what
+    ///   they have always been.
+    static func save(videoURL: URL, trim: CMTimeRange? = nil, defaultName: String? = nil) {
         let asset = AVURLAsset(url: videoURL)
         let name = defaultName
 
@@ -15,12 +18,48 @@ enum VideoExportService {
             let audioTrackCount = audioTracks?.count ?? 0
 
             await MainActor.run {
-                showSavePanel(videoURL: videoURL, audioTrackCount: audioTrackCount, defaultName: name)
+                showSavePanel(videoURL: videoURL, trim: trim, audioTrackCount: audioTrackCount, defaultName: name)
             }
         }
     }
 
-    private static func showSavePanel(videoURL: URL, audioTrackCount: Int, defaultName: String? = nil) {
+    /// Shares a recording, exporting the trimmed range to a temp file first when
+    /// there is one. Untrimmed sharing still hands over the original file
+    /// immediately, with no sheet and no copy.
+    static func share(videoURL: URL, trim: CMTimeRange?, name: String, from sender: NSView) {
+        guard trim != nil else {
+            presentPicker(for: videoURL, from: sender)
+            return
+        }
+
+        let window = NSApp.keyWindow
+        let sheet = progressSheet(title: "Preparing Video", message: "Trimming video…", determinate: false, onCancel: nil)
+        window?.beginSheet(sheet.panel)
+
+        Task {
+            defer { window?.endSheet(sheet.panel) }
+            do {
+                let staged = try await VideoTrimStaging.materialize(videoURL: videoURL, trim: trim, name: name)
+                // The toolbar item can be gone by now if the window closed.
+                guard sender.window != nil else { return }
+                // Not discarded here: the sharing service reads the file
+                // asynchronously after the picker returns. The staging directory
+                // is swept at launch instead.
+                presentPicker(for: staged, from: sender)
+            } catch is CancellationError {
+                return
+            } catch {
+                showError("Failed to prepare video for sharing: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func presentPicker(for url: URL, from sender: NSView) {
+        let picker = NSSharingServicePicker(items: [url])
+        picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+    }
+
+    private static func showSavePanel(videoURL: URL, trim: CMTimeRange?, audioTrackCount: Int, defaultName: String? = nil) {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.mpeg4Movie]
         let baseName = defaultName ?? "Recording"
@@ -59,10 +98,56 @@ enum VideoExportService {
 
         let mergeAudio = popup.isEnabled && popup.indexOfSelectedItem == 0
 
-        if mergeAudio {
+        if let trim {
+            // This is what stops "Independent tracks" being a plain file copy
+            // once a trim exists: it becomes a real export that still gives each
+            // source audio track its own track in the output.
+            exportTrimmed(
+                sourceURL: videoURL,
+                destinationURL: destinationURL,
+                range: trim,
+                audioMode: mergeAudio ? .mergeToSingleTrack : .preserveTracks
+            )
+        } else if mergeAudio {
             exportWithMergedAudio(sourceURL: videoURL, destinationURL: destinationURL)
         } else {
             copyVideo(sourceURL: videoURL, destinationURL: destinationURL)
+        }
+    }
+
+    private static func exportTrimmed(
+        sourceURL: URL,
+        destinationURL: URL,
+        range: CMTimeRange,
+        audioMode: VideoTrimExporter.AudioMode
+    ) {
+        let window = NSApp.keyWindow
+        var task: Task<Void, Never>?
+        let sheet = progressSheet(
+            title: "Exporting Video",
+            message: "Exporting trimmed video…",
+            determinate: true,
+            onCancel: { task?.cancel() }
+        )
+        window?.beginSheet(sheet.panel)
+
+        task = Task {
+            defer { window?.endSheet(sheet.panel) }
+            do {
+                try await VideoTrimExporter.export(
+                    sourceURL: sourceURL,
+                    destinationURL: destinationURL,
+                    range: range,
+                    audioMode: audioMode,
+                    progress: { fraction in
+                        Task { @MainActor in sheet.setProgress(fraction) }
+                    }
+                )
+            } catch is CancellationError {
+                return
+            } catch {
+                showError("Export failed: \(error.localizedDescription)")
+            }
         }
     }
 
@@ -79,41 +164,98 @@ enum VideoExportService {
 
     private static func exportWithMergedAudio(sourceURL: URL, destinationURL: URL) {
         let window = NSApp.keyWindow
-
-        // Build a button-free progress sheet
-        let sheet = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 260, height: 70),
-            styleMask: [.titled],
-            backing: .buffered,
-            defer: true
-        )
-        sheet.title = "Exporting Video"
-
-        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 70))
-
-        let spinner = NSProgressIndicator(frame: NSRect(x: 20, y: 24, width: 24, height: 24))
-        spinner.style = .spinning
-        spinner.startAnimation(nil)
-        contentView.addSubview(spinner)
-
-        let label = NSTextField(labelWithString: "Exporting video…")
-        label.frame = NSRect(x: 52, y: 26, width: 190, height: 20)
-        contentView.addSubview(label)
-
-        sheet.contentView = contentView
-
-        window?.beginSheet(sheet)
+        let sheet = progressSheet(title: "Exporting Video", message: "Exporting video…", determinate: false, onCancel: nil)
+        window?.beginSheet(sheet.panel)
 
         Task.detached {
             let result = await VideoExportMerger.performMerge(sourceURL: sourceURL, destinationURL: destinationURL)
 
             await MainActor.run {
-                window?.endSheet(sheet)
+                window?.endSheet(sheet.panel)
 
                 if case .failure(let error) = result {
                     showError("Export failed: \(error.localizedDescription)")
                 }
             }
+        }
+    }
+
+    // MARK: - Progress Sheet
+
+    /// Shared by every long-running video export.
+    ///
+    /// Determinate with a Cancel button for trimmed exports, which re-encode and
+    /// can take a while; an indeterminate spinner with no button for the
+    /// audio-merge path, which is what it has always shown.
+    private static func progressSheet(
+        title: String,
+        message: String,
+        determinate: Bool,
+        onCancel: (() -> Void)?
+    ) -> ProgressSheet {
+        let height: CGFloat = onCancel == nil ? 70 : 108
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 300, height: height),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: true
+        )
+        panel.title = title
+
+        let contentView = NSView(frame: NSRect(x: 0, y: 0, width: 300, height: height))
+        let topRow = height - 46
+
+        let indicator: NSProgressIndicator
+        let label: NSTextField
+        if determinate {
+            indicator = NSProgressIndicator(frame: NSRect(x: 20, y: topRow - 4, width: 260, height: 20))
+            indicator.style = .bar
+            indicator.isIndeterminate = false
+            indicator.minValue = 0
+            indicator.maxValue = 1
+            indicator.doubleValue = 0
+            label = NSTextField(labelWithString: message)
+            label.frame = NSRect(x: 20, y: topRow + 20, width: 260, height: 20)
+        } else {
+            indicator = NSProgressIndicator(frame: NSRect(x: 20, y: topRow, width: 24, height: 24))
+            indicator.style = .spinning
+            indicator.startAnimation(nil)
+            label = NSTextField(labelWithString: message)
+            label.frame = NSRect(x: 52, y: topRow + 2, width: 228, height: 20)
+        }
+        contentView.addSubview(indicator)
+        contentView.addSubview(label)
+
+        if let onCancel {
+            let handler = ProgressSheetCanceller(action: onCancel)
+            let button = NSButton(title: "Cancel", target: handler, action: #selector(ProgressSheetCanceller.cancel))
+            button.bezelStyle = .rounded
+            button.frame = NSRect(x: 196, y: 16, width: 84, height: 24)
+            contentView.addSubview(button)
+            // The button's target is unowned, so the handler has to outlive this
+            // function; the panel is the natural owner.
+            objc_setAssociatedObject(panel, "cancelHandler", handler, .OBJC_ASSOCIATION_RETAIN)
+        }
+
+        panel.contentView = contentView
+        return ProgressSheet(panel: panel, indicator: determinate ? indicator : nil)
+    }
+
+    /// A class rather than a struct so that, being `@MainActor`-isolated, it is
+    /// Sendable and the exporter's `@Sendable` progress callback can hop back to
+    /// it without carrying the AppKit views across the boundary.
+    @MainActor
+    final class ProgressSheet {
+        let panel: NSPanel
+        private let indicator: NSProgressIndicator?
+
+        init(panel: NSPanel, indicator: NSProgressIndicator?) {
+            self.panel = panel
+            self.indicator = indicator
+        }
+
+        func setProgress(_ fraction: Double) {
+            indicator?.doubleValue = fraction
         }
     }
 
@@ -124,6 +266,19 @@ enum VideoExportService {
         alert.alertStyle = .warning
         alert.addButton(withTitle: "OK")
         alert.runModal()
+    }
+}
+
+@MainActor
+private final class ProgressSheetCanceller: NSObject {
+    private let action: () -> Void
+
+    init(action: @escaping () -> Void) {
+        self.action = action
+    }
+
+    @objc func cancel() {
+        action()
     }
 }
 

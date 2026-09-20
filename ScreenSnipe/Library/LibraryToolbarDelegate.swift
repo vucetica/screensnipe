@@ -490,7 +490,14 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
                 ImageExportService.save(image: image, annotations: store.annotations, cropRect: store.cropRect, defaultName: entryName)
             }
         } else if let videoURL = viewModel.selectedVideoURL {
-            VideoExportService.save(videoURL: videoURL, defaultName: entryName)
+            // A trim dragged in the last 300 ms is still pending; the export
+            // reads the store, so flush first for consistency with the sidecar.
+            viewModel.flushPendingTrimSave()
+            VideoExportService.save(
+                videoURL: videoURL,
+                trim: viewModel.trimStore.exportRange,
+                defaultName: entryName
+            )
         }
     }
 
@@ -532,20 +539,27 @@ final class LibraryToolbarDelegate: NSObject, NSToolbarDelegate, NSToolbarItemVa
     }
 
     @objc private func copyLinkAction() {
+        LibraryViewModel.shared.flushPendingTrimSave()
         LibraryViewModel.shared.copyICloudLinkForSelection()
     }
 
     @objc private func shareAction(_ sender: NSButton) {
         let viewModel = LibraryViewModel.shared
-        let items: [Any]
-        if let image = viewModel.selectedImage {
-            let store = viewModel.annotationStore
-            items = [ImageExportService.flatten(image: image, annotations: store.annotations, cropRect: store.cropRect)]
-        } else if let videoURL = viewModel.selectedVideoURL {
-            items = [videoURL]
-        } else {
+        if let videoURL = viewModel.selectedVideoURL {
+            // Video shares may need a trimmed file written first, so the picker
+            // is presented by the service once that file exists.
+            viewModel.flushPendingTrimSave()
+            VideoExportService.share(
+                videoURL: videoURL,
+                trim: viewModel.trimStore.exportRange,
+                name: viewModel.selectedExportName ?? "Recording",
+                from: sender
+            )
             return
         }
+        guard let image = viewModel.selectedImage else { return }
+        let store = viewModel.annotationStore
+        let items: [Any] = [ImageExportService.flatten(image: image, annotations: store.annotations, cropRect: store.cropRect)]
         let picker = NSSharingServicePicker(items: items)
         picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
