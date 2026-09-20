@@ -62,12 +62,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         observeShortcuts()
         startGlobalHotkeys()
         showWelcomePopoverIfFirstLaunch()
+        // Trimmed files staged for a share are handed to the sharing service and
+        // read after the picker returns, so they cannot be deleted at the call
+        // site. They are swept here instead.
+        VideoTrimStaging.clearStagingDirectory()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         // Without this the most recent annotation edits are lost on quit,
         // because the auto-save is still waiting out its delay.
         LibraryViewModel.shared.flushPendingSave()
+        LibraryViewModel.shared.flushPendingTrimSave()
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

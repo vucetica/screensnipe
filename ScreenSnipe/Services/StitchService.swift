@@ -208,7 +208,8 @@ enum StitchService {
             case .video:
                 let asset = AVURLAsset(url: item.url)
                 let duration = try await asset.load(.duration)
-                total += Int64(CMTimeGetSeconds(duration) * Double(fps))
+                let effective = effectiveRange(item, assetDuration: duration)?.duration ?? duration
+                total += Int64(CMTimeGetSeconds(effective) * Double(fps))
             case .image:
                 total += Int64(config.imageDurationSeconds * Double(fps))
             }
@@ -217,6 +218,14 @@ enum StitchService {
             }
         }
         return total
+    }
+
+    /// The portion of a source to actually read, clamped to what the file
+    /// contains. nil means the whole asset.
+    private static func effectiveRange(_ source: StitchSource, assetDuration: CMTime) -> CMTimeRange? {
+        guard let raw = source.timeRange, assetDuration.isValid, assetDuration > .zero else { return nil }
+        let hit = raw.intersection(CMTimeRange(start: .zero, duration: assetDuration))
+        return hit.duration > .zero ? hit : nil
     }
 
     // MARK: - Resolution
@@ -286,6 +295,15 @@ enum StitchService {
             height: abs(naturalSize.applying(transform).height)
         )
 
+        // With a trim the readers hand back PTS starting at the trim's start
+        // rather than at zero, so `offset` replaces `startTime` in every piece of
+        // output-time arithmetic below. Everything that is compared against a raw
+        // source PTS stays in source time and is seeded from `sourceStart`.
+        let assetDuration = try await asset.load(.duration)
+        let trimRange = Self.effectiveRange(source, assetDuration: assetDuration)
+        let sourceStart = trimRange?.start ?? .zero
+        let offset = startTime - sourceStart
+
         // Video reader
         let videoReader = try AVAssetReader(asset: asset)
         let videoOutput = AVAssetReaderTrackOutput(track: videoTrack, outputSettings: [
@@ -293,6 +311,7 @@ enum StitchService {
         ])
         guard videoReader.canAdd(videoOutput) else { throw StitchError.readerFailed(nil) }
         videoReader.add(videoOutput)
+        if let trimRange { videoReader.timeRange = trimRange }
         guard videoReader.startReading() else {
             throw StitchError.readerFailed(videoReader.error)
         }
@@ -319,16 +338,19 @@ enum StitchService {
                 let output = AVAssetReaderTrackOutput(track: track, outputSettings: pcmSettings)
                 if audioReader.canAdd(output) { audioReader.add(output) }
             }
+            if let trimRange { audioReader.timeRange = trimRange }
 
             if audioReader.startReading() {
                 let outputs = audioReader.outputs
                 if outputs.count >= 1 {
                     while let buf = outputs[0].copyNextSampleBuffer() {
+                        guard Self.endsAfter(buf, sourceStart) else { continue }
                         systemAudioBuffers.append(buf)
                     }
                 }
                 if outputs.count >= 2 {
                     while let buf = outputs[1].copyNextSampleBuffer() {
+                        guard Self.endsAfter(buf, sourceStart) else { continue }
                         micAudioBuffers.append(buf)
                     }
                 }
@@ -349,10 +371,13 @@ enum StitchService {
         var sysAudioIdx = 0
         var micAudioIdx = 0
         var videoDone = false
-        var lastSourcePTS = CMTime.zero // tracks how far we've read in source time
-        var chunkStartSourcePTS = CMTime.zero // tracks where the current silence chunk begins
+        // Seeded from sourceStart, not zero: with a trim the first sample's PTS
+        // already exceeds a zero-based one-second threshold, so the very first
+        // audio flush would fire before any video had been written.
+        var lastSourcePTS = sourceStart // tracks how far we've read in source time
+        var chunkStartSourcePTS = sourceStart // tracks where the current silence chunk begins
         let chunkInterval = CMTime(value: 1, timescale: 1) // flush audio every ~1s of source time
-        var nextAudioFlush = chunkInterval
+        var nextAudioFlush = sourceStart + chunkInterval
 
         while !videoDone {
             try Task.checkCancellation()
@@ -366,7 +391,11 @@ enum StitchService {
                 }
 
                 let sourcePTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                let outputPTS = sourcePTS + startTime
+                // A sample before the trim start would land before the writer's
+                // session start and fail the writer, taking the whole stitch with
+                // it, so never rely on the reader's range alone.
+                guard CMTimeCompare(sourcePTS, sourceStart) >= 0 else { continue }
+                let outputPTS = sourcePTS + offset
 
                 if needsScaling {
                     guard let imageBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
@@ -421,19 +450,19 @@ enum StitchService {
             if hasSysAudio {
                 sysAudioIdx = writeAudioUpTo(
                     time: flushTime, buffers: systemAudioBuffers, startIndex: sysAudioIdx,
-                    input: systemAudioInput, writer: writer, offset: startTime
+                    input: systemAudioInput, writer: writer, offset: offset
                 )
             }
             if hasMicAudio {
                 micAudioIdx = writeAudioUpTo(
                     time: flushTime, buffers: micAudioBuffers, startIndex: micAudioIdx,
-                    input: micAudioInput, writer: writer, offset: startTime
+                    input: micAudioInput, writer: writer, offset: offset
                 )
             }
 
             // Write interleaved silence for any missing audio tracks
             if !hasSysAudio || !hasMicAudio {
-                let silenceStart = chunkStartSourcePTS + startTime
+                let silenceStart = chunkStartSourcePTS + offset
                 let silenceDuration = lastSourcePTS - chunkStartSourcePTS + CMTime(value: 1, timescale: fps)
                 writeInterleavedSilence(
                     to: hasSysAudio ? nil : systemAudioInput,
@@ -448,18 +477,18 @@ enum StitchService {
 
         // Flush remaining pre-read audio samples
         while sysAudioIdx < systemAudioBuffers.count {
-            writeRetimedSample(systemAudioBuffers[sysAudioIdx], to: systemAudioInput, writer: writer, offset: startTime)
+            writeRetimedSample(systemAudioBuffers[sysAudioIdx], to: systemAudioInput, writer: writer, offset: offset)
             sysAudioIdx += 1
         }
         while micAudioIdx < micAudioBuffers.count {
-            writeRetimedSample(micAudioBuffers[micAudioIdx], to: micAudioInput, writer: writer, offset: startTime)
+            writeRetimedSample(micAudioBuffers[micAudioIdx], to: micAudioInput, writer: writer, offset: offset)
             micAudioIdx += 1
         }
 
         // Pad missing tracks with silence to cover full segment duration
         if !hasSysAudio || !hasMicAudio {
-            let finalSilenceStart = chunkStartSourcePTS + startTime
-            let endPTS = lastSourcePTS + startTime + CMTime(value: 1, timescale: fps)
+            let finalSilenceStart = chunkStartSourcePTS + offset
+            let endPTS = lastSourcePTS + offset + CMTime(value: 1, timescale: fps)
             let remaining = endPTS - finalSilenceStart
             if CMTimeGetSeconds(remaining) > 0 {
                 writeInterleavedSilence(
@@ -473,9 +502,19 @@ enum StitchService {
         videoReader.cancelReading()
 
         // End time based on actual source duration, not frame count
-        let endTime = lastSourcePTS + startTime + CMTime(value: 1, timescale: fps)
+        let endTime = lastSourcePTS + offset + CMTime(value: 1, timescale: fps)
         NSLog("[StitchService] appendVideo: done, \(frameCount) frames, endTime=\(CMTimeGetSeconds(endTime))s")
         return endTime
+    }
+
+    /// True when a sample buffer still carries audio at or after `time`, so a
+    /// buffer straddling the trim boundary is kept and one entirely before it is
+    /// dropped.
+    private static func endsAfter(_ buffer: CMSampleBuffer, _ time: CMTime) -> Bool {
+        let pts = CMSampleBufferGetPresentationTimeStamp(buffer)
+        let duration = CMSampleBufferGetDuration(buffer)
+        let end = duration.isValid ? pts + duration : pts
+        return CMTimeCompare(end, time) > 0
     }
 
     // MARK: - Append Image
@@ -645,6 +684,10 @@ enum StitchService {
 
         let originalPTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
         let newPTS = originalPTS + offset
+        // The writer session starts at zero, so a negative output time fails the
+        // whole writer. With a trim, an audio buffer straddling the in point can
+        // land here, so drop rather than append it.
+        guard CMTimeCompare(newPTS, .zero) >= 0 else { return }
 
         var timingInfo = CMSampleTimingInfo(
             duration: CMSampleBufferGetDuration(sampleBuffer),

@@ -21,6 +21,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 - **Tool presets**: Save up to 6 presets per tool for quick access
 - **Text editing**: Double-click any text annotation to re-edit; live font size updates from the property panel
 - **Undo/Redo**: Full undo/redo support for all annotations
+- **Video trim**: Set where a recording starts and stops with a filmstrip trim bar under the player. The trim is non-destructive, so the original recording is untouched and you can reopen a capture and adjust the range later. Library playback is bounded to the selection, and every export honors it. Drag the handles, or use Left/Right to move the selected handle a frame at a time, Up/Down to switch handles, `[` and `]` to snap an edge to the playhead, and Escape to clear
 - **Text recognition (OCR)**: Extract text from captures using the Vision framework; AI-powered text cleanup on macOS 26+
 - **Tool shortcuts**: V (Select), A (Arrow), T (Text), S (Shape), L (Line), H (Highlighter), B (Blur), C (Crop)
 - **Series frame navigation**: Annotate every frame of a series independently; jump between frames with the filmstrip under the canvas, the toolbar chevrons, or ⌥← / ⌥→. Click the filmstrip to focus it and plain ← / → step through frames (the canvas keeps plain arrows for nudging a selected annotation)
@@ -30,13 +31,14 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 - **Library browser**: NavigationSplitView sidebar with embedded editor and video player
 - **Multi-selection**: Cmd/Shift+Click to select multiple items in the sidebar
 - **Search**: Toolbar search field filters the sidebar by name, description, or tag (case-insensitive substring match); `is:shared`, `is:image`, `is:video`, and `is:series` narrow results to shared captures, screenshots, recordings, or series (also available from the search field's magnifier menu)
+- **Trim badge**: Trimmed recordings are marked with scissors in the sidebar, and their thumbnail comes from the trimmed start frame
 - **Stitch Together**: Combine multiple screenshots, recordings, and series into a single video with configurable pauses and image durations, drag-to-reorder, and automatic letterboxing. A series expands to one clip per frame, so a single series can be stitched on its own
 - **Auto-save**: Annotations persist automatically on edit (300ms debounce)
 
 ### Export
-- **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF or PDF
+- **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF or PDF. Recordings export as MP4, cut to the trim range when one is set, with the option to merge audio into one track or keep system audio and microphone separate
 - **Copy to clipboard**: One-click copy with toast confirmation
-- **Share**: System share sheet integration
+- **Share**: System share sheet integration; a trimmed recording is exported to the selected range first
 - **Copy iCloud Link**: Publish a capture as a public iCloud download link anyone can open in a browser; revoke via Stop Sharing (requires iCloud provisioning, see [developer/ICLOUD-SHARING.md](developer/ICLOUD-SHARING.md))
 
 ### Preferences

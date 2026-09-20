@@ -1,4 +1,5 @@
 import Foundation
+import CoreMedia
 
 /// One resolved piece of media to append to a stitched video.
 ///
@@ -15,6 +16,20 @@ struct StitchSource: Sendable {
     let url: URL
     /// Entry id (plus frame index for series frames), used in diagnostics.
     let id: String
+    /// Stored trim for a video source; nil for images and untrimmed videos.
+    ///
+    /// A `VideoTrimRange` rather than a `CMTimeRange` so the source stays
+    /// trivially `Sendable`; it converts at the point of use in `StitchService`.
+    let trim: VideoTrimRange?
+
+    init(kind: Kind, url: URL, id: String, trim: VideoTrimRange? = nil) {
+        self.kind = kind
+        self.url = url
+        self.id = id
+        self.trim = trim
+    }
+
+    var timeRange: CMTimeRange? { trim?.timeRange }
 }
 
 struct StitchConfiguration: Sendable {
@@ -34,7 +49,10 @@ struct StitchConfiguration: Sendable {
                 }
             case .video:
                 if let url = entry.mediaURL {
-                    sources.append(StitchSource(kind: .video, url: url, id: entry.id))
+                    // A field read, not a disk read: metadata.json is already
+                    // loaded for every entry, which is what lets this stay
+                    // synchronous and non-throwing.
+                    sources.append(StitchSource(kind: .video, url: url, id: entry.id, trim: entry.metadata.trim))
                 }
             case .series:
                 guard let manifest = try? SeriesManifest.load(from: entry.seriesManifestURL) else { continue }

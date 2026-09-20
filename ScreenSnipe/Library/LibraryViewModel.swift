@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import AppKit
+import CoreMedia
 
 @MainActor
 final class LibraryViewModel: ObservableObject {
@@ -33,6 +34,8 @@ final class LibraryViewModel: ObservableObject {
     private var shareLinkTask: Task<Void, Never>?
 
     let annotationStore = AnnotationStore()
+    let trimStore = VideoTrimStore()
+    let playbackController = VideoPlaybackController()
 
     private var cancellables: Set<AnyCancellable> = []
     private var currentEntryID: String?
@@ -88,6 +91,16 @@ final class LibraryViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
                 self?.loadSelectedEntry()
+            }
+            .store(in: &cancellables)
+
+        // Trim saves to metadata.json, not annotations.json, so it gets its own
+        // debounce rather than joining editSignals.
+        trimStore.$trim
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.scheduleTrimSave()
             }
             .store(in: &cancellables)
     }
@@ -188,6 +201,7 @@ final class LibraryViewModel: ObservableObject {
         // Drop, don't flush: the folder is about to go away.
         if entry.id == currentEntryID {
             cancelPendingSave()
+            cancelPendingTrimSave()
         }
         do {
             try LibraryManager.shared.delete(entry: entry)
@@ -203,6 +217,7 @@ final class LibraryViewModel: ObservableObject {
     private func loadSelectedEntry() {
         // Write the outgoing entry's pending edits before anything is retargeted.
         flushPendingSave()
+        flushPendingTrimSave()
 
         currentEntryID = selectedEntryID
         currentFrameIndex = nil
@@ -213,6 +228,7 @@ final class LibraryViewModel: ObservableObject {
               let entry = LibraryManager.shared.entries.first(where: { $0.id == id }) else {
             selectedImage = nil
             selectedVideoURL = nil
+            trimStore.unload()
             annotationStore.replaceAllWithoutUndo([])
             objectWillChange.send()
             return
@@ -222,11 +238,14 @@ final class LibraryViewModel: ObservableObject {
         case .image:
             selectedImage = entry.mediaURL.flatMap { NSImage(contentsOf: $0) }
             selectedVideoURL = nil
+            trimStore.unload()
         case .video:
             selectedImage = nil
             selectedVideoURL = entry.mediaURL
+            trimStore.load(entry: entry)
         case .series:
             selectedVideoURL = nil
+            trimStore.unload()
             loadSeries(entry)
             return
         }
@@ -416,6 +435,9 @@ final class LibraryViewModel: ObservableObject {
     // MARK: - Stitch
 
     func beginStitch() {
+        // Sources are built from LibraryEntry.metadata, so a trim dragged within
+        // the last 300 ms has to reach disk before the entries are snapshotted.
+        flushPendingTrimSave()
         let allEntries = LibraryManager.shared.entries
         stitchEntries = allEntries
             .filter { selectedEntryIDs.contains($0.id) }
@@ -498,7 +520,10 @@ final class LibraryViewModel: ObservableObject {
             payload = .imageData(data)
         case .video:
             guard let url = entry.mediaURL else { return }
-            payload = .file(url)
+            // Read from the entry's metadata, not trimStore: this is reachable
+            // from the sidebar context menu for an entry that is not selected,
+            // where the store holds a different recording's trim.
+            payload = .file(url, trim: entry.metadata.trim?.timeRange)
         }
 
         showShareLinkProgress = true
@@ -508,8 +533,14 @@ final class LibraryViewModel: ObservableObject {
                 switch payload {
                 case .imageData(let data):
                     link = try await ICloudShareService.publish(data: data, entryID: entry.id, fileExtension: "png")
-                case .file(let url):
-                    link = try await ICloudShareService.publish(fileAt: url, entryID: entry.id)
+                case .file(let url, let trim):
+                    let staged = try await VideoTrimStaging.materialize(
+                        videoURL: url, trim: trim, name: entry.id
+                    )
+                    defer { VideoTrimStaging.discard(staged, original: url) }
+                    // publish(fileAt:) copies into the ubiquity container before
+                    // returning, so the staged file is safe to delete after.
+                    link = try await ICloudShareService.publish(fileAt: staged, entryID: entry.id)
                 }
                 var metadata = entry.metadata
                 metadata.shareURL = link.url
@@ -563,7 +594,7 @@ final class LibraryViewModel: ObservableObject {
 
     private enum ICloudSharePayload {
         case imageData(Data)
-        case file(URL)
+        case file(URL, trim: CMTimeRange?)
     }
 
     private static let shareLinkInfoShownKey = "icloudLinkInfoShown"
@@ -688,6 +719,84 @@ final class LibraryViewModel: ObservableObject {
         saveTask?.cancel()
         saveTask = nil
         pendingSaveTarget = nil
+    }
+
+    // MARK: - Trim Auto-save
+
+    /// Mirrors the annotation save discipline, against `metadata.json` instead.
+    private var trimSaveTask: Task<Void, Never>?
+    private var pendingTrimEntryID: String?
+
+    private func scheduleTrimSave() {
+        // Without the isLoading guard, selecting a video would write the value
+        // it just read straight back, and saveMetadata mutates the published
+        // entries array, so every click would invalidate the whole sidebar.
+        guard !trimStore.isLoading,
+              trimStore.isReady,
+              let id = trimStore.entryID else { return }
+        trimSaveTask?.cancel()
+        pendingTrimEntryID = id
+        trimSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(300))
+            guard !Task.isCancelled, let self else { return }
+            self.pendingTrimEntryID = nil
+            self.trimSaveTask = nil
+            self.performTrimSave(to: id)
+        }
+    }
+
+    /// Writes a pending trim edit before the store is retargeted or read by an
+    /// export. Same contract as `flushPendingSave`.
+    func flushPendingTrimSave() {
+        guard let id = pendingTrimEntryID else { return }
+        trimSaveTask?.cancel()
+        trimSaveTask = nil
+        pendingTrimEntryID = nil
+        performTrimSave(to: id)
+    }
+
+    func cancelPendingTrimSave() {
+        trimSaveTask?.cancel()
+        trimSaveTask = nil
+        pendingTrimEntryID = nil
+    }
+
+    private func performTrimSave(to entryID: String) {
+        guard let entry = LibraryManager.shared.entries.first(where: { $0.id == entryID }) else { return }
+        let newTrim = trimStore.trim?.clamped(
+            toAssetDuration: trimStore.assetDuration,
+            minimum: VideoTrimStore.minimumDuration
+        )
+        guard entry.metadata.trim != newTrim else { return }
+
+        let startMoved = entry.metadata.trim?.start != newTrim?.start
+        var metadata = entry.metadata
+        metadata.trim = newTrim
+
+        // A published link serves whatever was uploaded when it was published,
+        // so a link left alive after a trim would keep handing out the footage
+        // the user just cut away.
+        let hadLink = metadata.shareURL != nil
+        if hadLink {
+            metadata.shareURL = nil
+            metadata.shareExpiration = nil
+        }
+
+        do {
+            try LibraryManager.shared.saveMetadata(metadata, for: entry)
+        } catch {
+            ErrorReporter.report(error, context: "Failed to save trim")
+            return
+        }
+
+        if hadLink {
+            Task { try? await ICloudShareService.revoke(entryID: entryID) }
+        }
+        if startMoved {
+            let time = newTrim?.start.cmTime ?? .zero
+            Task { await LibraryManager.shared.regenerateVideoThumbnail(for: entry, at: time) }
+        }
+        objectWillChange.send()
     }
 
     private func performSave(to target: SaveTarget) {

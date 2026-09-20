@@ -413,6 +413,40 @@ final class LibraryManager: ObservableObject {
         return bitmapRep.representation(using: .png, properties: [:])
     }
 
+    /// Async, time-addressed sibling of `generateVideoThumbnail(from:)`.
+    ///
+    /// Separate because this one runs in response to a user dragging a trim
+    /// handle rather than during a folder scan, so it must not block.
+    private nonisolated static func videoThumbnailData(from url: URL, at time: CMTime) async -> Data? {
+        let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+        generator.appliesPreferredTrackTransform = true
+        generator.maximumSize = CGSize(width: 200, height: 200)
+        generator.requestedTimeToleranceBefore = CMTime(value: 1, timescale: 10)
+        generator.requestedTimeToleranceAfter = CMTime(value: 1, timescale: 10)
+
+        guard let (cgImage, _) = try? await generator.image(at: time) else { return nil }
+        let nsImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+        guard let tiffData = nsImage.tiffRepresentation,
+              let bitmapRep = NSBitmapImageRep(data: tiffData) else { return nil }
+        return bitmapRep.representation(using: .png, properties: [:])
+    }
+
+    /// Rewrites a recording's thumbnail from a specific point in it.
+    ///
+    /// Called when a trim's start moves: the most common reason to trim is
+    /// cutting a dead lead-in, and leaving the thumbnail on that dead frame is
+    /// the first thing anyone notices.
+    func regenerateVideoThumbnail(for entry: LibraryEntry, at time: CMTime) async {
+        guard entry.mediaType == .video, let url = entry.mediaURL else { return }
+        guard let data = await Self.videoThumbnailData(from: url, at: time) else { return }
+        do {
+            try data.write(to: entry.thumbnailURL, options: .atomic)
+            objectWillChange.send()
+        } catch {
+            ErrorReporter.log(error, context: "Failed to regenerate thumbnail for \(entry.id)")
+        }
+    }
+
     private nonisolated func generateVideoThumbnail(from url: URL) -> Data? {
         let asset = AVAsset(url: url)
         let generator = AVAssetImageGenerator(asset: asset)

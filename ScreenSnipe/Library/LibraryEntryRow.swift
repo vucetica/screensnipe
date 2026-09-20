@@ -10,7 +10,7 @@ struct LibraryEntryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
-                AsyncThumbnailView(url: entry.thumbnailURL)
+                AsyncThumbnailView(url: entry.thumbnailURL, version: entry.thumbnailVersion)
                     .frame(width: 60, height: 45)
                     .cornerRadius(4)
 
@@ -31,6 +31,12 @@ struct LibraryEntryRow: View {
                                 .font(.caption2)
                                 .foregroundStyle(.secondary)
                                 .help("Shared via iCloud link. Right-click to copy the link or stop sharing.")
+                        }
+                        if entry.metadata.trim != nil {
+                            Image(systemName: "scissors")
+                                .font(.caption2)
+                                .foregroundStyle(.secondary)
+                                .help("Trimmed. Saving, sharing, and stitching use only the selected range.")
                         }
                     }
                 }

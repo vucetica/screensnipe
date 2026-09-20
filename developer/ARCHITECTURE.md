@@ -45,7 +45,7 @@ capture, then routes the result per `CaptureSettings.postCaptureBehavior`
   selection and crops.
 - **Video** — `VideoRecordingService` uses ScreenCaptureKit `SCStream`
   (content filters for full screen / region / window) feeding an
-  `AVAssetWriter` (H.264 .mp4) with inputs for video, system audio, and mic
+  `AVAssetWriter` (HEVC .mp4) with inputs for video, system audio, and mic
   (`AVCaptureSession`). Pause/resume works by adjusting CMTime offsets on a
   dedicated serial `videoQueue`.
 - Supporting UI: `WindowPickerView`, `CountdownOverlay` (3-2-1),
@@ -74,6 +74,42 @@ capture, then routes the result per `CaptureSettings.postCaptureBehavior`
 - Style presets: `ToolPreset` / `PresetManager` / `PresetStrip` (up to 6 per
   tool). `PropertyPanel` edits the selected annotation's attributes.
 
+### Video trim
+
+The video counterpart of the image crop: a stored time range that is applied at
+export time and never written back to `recording.mp4`.
+
+- `VideoTrimRange` / `CodableCMTime` (`Models/`) persist the range as CMTime
+  parts, so a handle dropped on a frame boundary stays on it across a save.
+- It lives in `CaptureMetadata.trim` in `metadata.json`, **not** in
+  `annotations.json`. `LibraryManager.reload()` already reads `metadata.json`
+  for every entry, so the trim is in memory when the sidebar draws a row and
+  when `StitchConfiguration.resolvedSources()` builds its sources; from the
+  annotation sidecar, which is only read for the selected entry, both would
+  need a per-entry disk read.
+- `VideoTrimStore` (`Models/`) holds the live selection. Separate from
+  `AnnotationStore` because toolbar Undo is gated on `selectedImage != nil`, so
+  a trim on its undo stack would be unreachable. "Reset Trim" is the escape
+  hatch instead. `LibraryViewModel` gives it its own 300 ms debounce
+  (`scheduleTrimSave` / `flushPendingTrimSave` / `cancelPendingTrimSave`),
+  parallel to the annotation one.
+- `VideoTrimBarView` + `VideoFilmstripGenerator` (`Library/`) draw the strip
+  under the player, modeled on `SeriesFilmstripView`. No toolbar item and no
+  mode: the bar exists whenever a video entry is selected.
+- `VideoPlayerView` keeps the full asset and bounds playback with
+  `AVPlayerItem.forwardPlaybackEndTime`, rather than handing the player a
+  trimmed composition, so dragging a handle can still seek outside the range
+  for preview. Its `Coordinator` owns the player, a 10 Hz playhead observer,
+  and `VideoPlaybackController`, which is how the trim bar scrubs.
+- `VideoTrimExporter` (`Services/`) is the single trimmed-export engine, used by
+  save, share and the iCloud publish (via `VideoTrimStaging`). It re-encodes the
+  video: a compressed passthrough cut can only begin on a sync sample, and
+  recordings carry one per second, so a copy-based trim would miss the handle by
+  up to a second. Untrimmed exports never reach it and stay lossless.
+- `StitchService.appendVideo` sets `timeRange` on its readers and swaps
+  `startTime` for `offset = startTime - trimStart` in every output-time
+  expression, seeding its source-time trackers from the trim start.
+
 ## Library & persistence
 
 **No SwiftData/CoreData — plain filesystem.** `LibraryManager.shared` stores
@@ -82,7 +118,7 @@ each capture as a timestamped folder (`yyyy-MM-dd-HH-mm-ss-SSS`) containing:
 ```
 screenshot.png | recording.mp4
 annotations.json     # editor state
-metadata.json        # CaptureMetadata: name, description, tags
+metadata.json        # CaptureMetadata: name, description, tags, share link, video trim
 thumbnail.png
 ```
 
@@ -101,6 +137,8 @@ into one MP4 via AVFoundation + Metal-backed CIContext).
 - `CaptureSettings` — post-capture behavior
 - `PresetManager` — tool style presets
 - `ImageExportService` / `VideoExportService` — stateless exporters
+- `VideoTrimExporter` / `VideoTrimStaging` — time-bounded video export, shared by
+  save, share and iCloud publishing
 - `StitchService` — multi-capture video compositing
 - `TextRecognitionService` — Vision OCR; optional FoundationModels cleanup on
   macOS 26+ (`#if canImport(FoundationModels)`)
