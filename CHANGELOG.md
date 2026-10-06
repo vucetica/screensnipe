@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.13.0] - 2026-10-05
+## [1.13.1] - 2026-10-05
 
 ### Added
 - **Open at login**: a new "Open Screen Snipe at login" switch in Settings > General. Turn it on to have the app start when you log in, so the menu bar icon and shortcuts are ready after a restart. It is off by default. The switch also reflects changes made in System Settings > General > Login Items.
@@ -120,8 +120,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.13.0...HEAD
-[1.13.0]: https://github.com/vucetica/screensnipe/compare/v1.12.0...v1.13.0
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.13.1...HEAD
+[1.13.1]: https://github.com/vucetica/screensnipe/compare/v1.12.0...v1.13.1
 [1.12.0]: https://github.com/vucetica/screensnipe/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/vucetica/screensnipe/compare/v1.11.0...v1.11.1
 [1.11.0]: https://github.com/vucetica/screensnipe/compare/v1.10.0...v1.11.0
