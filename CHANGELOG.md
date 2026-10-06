@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.13.0] - 2026-10-05
 
 ### Added
-- **Open at login**: a new "Open Screen Snipe at login" switch in Settings > General. It is turned on the first time the app runs, so the menu bar icon and shortcuts are ready after a restart. If you turn it off, it stays off. The switch also reflects changes made in System Settings > General > Login Items.
+- **Open at login**: a new "Open Screen Snipe at login" switch in Settings > General. Turn it on to have the app start when you log in, so the menu bar icon and shortcuts are ready after a restart. It is off by default. The switch also reflects changes made in System Settings > General > Login Items.
 
 ## [1.12.0] - 2026-09-20
 

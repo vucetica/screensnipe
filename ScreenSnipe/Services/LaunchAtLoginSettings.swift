@@ -8,24 +8,9 @@ import ServiceManagement
 final class LaunchAtLoginSettings: ObservableObject {
     static let shared = LaunchAtLoginSettings()
 
-    private static let didApplyDefaultKey = "launchAtLogin.didApplyDefault"
-
     @Published private(set) var isEnabled: Bool = false
 
     private init() {
-        refresh()
-    }
-
-    /// Turns launch at login on the first time the app runs. This only happens
-    /// once, so if the user turns it off later it stays off.
-    func applyDefaultIfNeeded() {
-        guard !UserDefaults.standard.bool(forKey: Self.didApplyDefaultKey) else { return }
-        UserDefaults.standard.set(true, forKey: Self.didApplyDefaultKey)
-        do {
-            try SMAppService.mainApp.register()
-        } catch {
-            ErrorReporter.log(error, context: "Could not turn on launch at login")
-        }
         refresh()
     }
 
