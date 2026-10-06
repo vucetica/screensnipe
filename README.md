@@ -14,6 +14,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 - **Series capture**: Pick a region, window, or full screen once, then snap as many stills of that target as you need from a floating control panel or with a shortcut (⌃⇧Space). All frames land in a single library entry
 - **Audio recording**: System audio capture and microphone input with device selection
 - **Post-capture behavior**: Open in editor, copy to clipboard, or both (configurable)
+- **Open at login**: Screen Snipe starts when you log in, so the menu bar icon and shortcuts are always ready. It is on by default, and you can turn it off in Settings > General
 
 ### Annotation & Editing
 - **Tools**: Arrow, text, shape (rectangle/ellipse/rounded rect), line, highlighter, blur, and non-destructive crop

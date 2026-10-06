@@ -61,6 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         observeRecordingState()
         observeShortcuts()
         startGlobalHotkeys()
+        LaunchAtLoginSettings.shared.applyDefaultIfNeeded()
         showWelcomePopoverIfFirstLaunch()
         // Trimmed files staged for a share are handed to the sharing service and
         // read after the picker returns, so they cannot be deleted at the call
