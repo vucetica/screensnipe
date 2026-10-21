@@ -37,7 +37,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 - **Auto-save**: Annotations persist automatically on edit (300ms debounce)
 
 ### Export
-- **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF or PDF. Recordings export as MP4, cut to the trim range when one is set, with the option to merge audio into one track or keep system audio and microphone separate
+- **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF, PDF, or animated GIF (with a per-frame delay in seconds and a loop count, where 0 loops forever). Recordings export as MP4, cut to the trim range when one is set, with the option to merge audio into one track or keep system audio and microphone separate
 - **Copy to clipboard**: One-click copy with toast confirmation
 - **Share**: System share sheet integration; a trimmed recording is exported to the selected range first
 - **Copy iCloud Link**: Publish a capture as a public iCloud download link anyone can open in a browser; revoke via Stop Sharing (requires iCloud provisioning, see [developer/ICLOUD-SHARING.md](developer/ICLOUD-SHARING.md))

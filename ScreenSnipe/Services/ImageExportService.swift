@@ -1,5 +1,7 @@
 import AppKit
+import ImageIO
 import PDFKit
+import UniformTypeIdentifiers
 
 @MainActor
 enum ImageExportService {
@@ -197,25 +199,33 @@ enum ImageExportService {
         defaultName: String? = nil
     ) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.tiff, .pdf, .png, .jpeg]
+        panel.allowedContentTypes = [.tiff, .pdf, .gif, .png, .jpeg]
         let baseName = defaultName ?? "Series"
         panel.nameFieldStringValue = "\(baseName).tiff"
         panel.canCreateDirectories = true
-        panel.message = "TIFF and PDF save every frame in one file. PNG and JPEG save the current frame."
+        panel.message = "TIFF, PDF, and GIF save every frame in one file. PNG and JPEG save the current frame."
+
+        let gifOptions = GIFOptionsAccessory()
+        panel.accessoryView = gifOptions.view
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        switch url.pathExtension.lowercased() {
-        case "tiff", "tif", "pdf":
+        let ext = url.pathExtension.lowercased()
+        switch ext {
+        case "tiff", "tif", "pdf", "gif":
             let frames = allFrames()
             guard !frames.isEmpty else { return }
             let flattened = frames.map {
                 flatten(image: $0.image, annotations: $0.annotations, cropRect: $0.cropRect)
             }
             do {
-                if url.pathExtension.lowercased() == "pdf" {
+                switch ext {
+                case "pdf":
                     try writePDF(flattened, to: url)
-                } else {
+                case "gif":
+                    let options = gifOptions.commit()
+                    try writeAnimatedGIF(flattened, delay: options.delay, loopCount: options.loopCount, to: url)
+                default:
                     try writeMultiPageTIFF(flattened, to: url)
                 }
             } catch {
@@ -264,6 +274,72 @@ enum ImageExportService {
         try data.write(to: url, options: .atomic)
     }
 
+    /// Writes the frames as an animated GIF.
+    ///
+    /// - Parameters:
+    ///   - delay: seconds each frame stays on screen.
+    ///   - loopCount: how many times the animation plays; 0 loops forever.
+    ///
+    /// A GIF has one canvas size, taken from its first frame. Frames can differ
+    /// in size when they have different crops, so every frame is centered on a
+    /// white canvas as large as the biggest frame.
+    private static func writeAnimatedGIF(_ images: [NSImage], delay: Double, loopCount: Int, to url: URL) throws {
+        let cgImages = images.compactMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+        let canvasWidth = cgImages.map(\.width).max() ?? 0
+        let canvasHeight = cgImages.map(\.height).max() ?? 0
+
+        guard !cgImages.isEmpty,
+              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, cgImages.count, nil)
+        else {
+            throw NSError(domain: "ImageExportService", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "Could not build an animated GIF from the series frames.",
+            ])
+        }
+
+        CGImageDestinationSetProperties(destination, [
+            kCGImagePropertyGIFDictionary: [kCGImagePropertyGIFLoopCount: loopCount],
+        ] as CFDictionary)
+
+        // Both keys are set: viewers that honor the unclamped value show short
+        // delays as given, and the others fall back to the clamped one.
+        let frameProperties = [
+            kCGImagePropertyGIFDictionary: [
+                kCGImagePropertyGIFDelayTime: delay,
+                kCGImagePropertyGIFUnclampedDelayTime: delay,
+            ],
+        ] as CFDictionary
+
+        for image in cgImages {
+            let frame = padded(image, toWidth: canvasWidth, height: canvasHeight) ?? image
+            CGImageDestinationAddImage(destination, frame, frameProperties)
+        }
+
+        guard CGImageDestinationFinalize(destination) else {
+            throw NSError(domain: "ImageExportService", code: 12, userInfo: [
+                NSLocalizedDescriptionKey: "Could not write the animated GIF.",
+            ])
+        }
+    }
+
+    /// Centers `image` on a white canvas of the given pixel size.
+    private static func padded(_ image: CGImage, toWidth width: Int, height: Int) -> CGImage? {
+        guard image.width != width || image.height != height else { return image }
+        guard let context = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpace(name: CGColorSpace.sRGB)!,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+        ) else { return nil }
+        context.setFillColor(CGColor(gray: 1, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: width, height: height))
+        let origin = CGPoint(x: (width - image.width) / 2, y: (height - image.height) / 2)
+        context.draw(image, in: CGRect(origin: origin, size: CGSize(width: image.width, height: image.height)))
+        return context.makeImage()
+    }
+
     private static func writePDF(_ images: [NSImage], to url: URL) throws {
         let document = PDFDocument()
         for (index, image) in images.enumerated() {
@@ -284,5 +360,74 @@ enum ImageExportService {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.writeObjects([flattened])
+    }
+}
+
+/// The animated GIF fields shown under the series save panel. The last values
+/// used are remembered so a repeat export does not need retyping.
+@MainActor
+private final class GIFOptionsAccessory {
+    private static let delayKey = "seriesGIFFrameDelay"
+    private static let loopCountKey = "seriesGIFLoopCount"
+
+    let view: NSView
+    private let delayField: NSTextField
+    private let loopField: NSTextField
+
+    init() {
+        let defaults = UserDefaults.standard
+        let delay = defaults.object(forKey: Self.delayKey) as? Double ?? 1.0
+        let loops = defaults.object(forKey: Self.loopCountKey) as? Int ?? 0
+
+        let delayFormatter = NumberFormatter()
+        delayFormatter.numberStyle = .decimal
+        delayFormatter.minimum = 0.01
+        delayFormatter.maximum = 600
+        delayFormatter.maximumFractionDigits = 2
+
+        let loopFormatter = NumberFormatter()
+        loopFormatter.numberStyle = .none
+        loopFormatter.allowsFloats = false
+        loopFormatter.minimum = 0
+        loopFormatter.maximum = 65535
+
+        delayField = NSTextField(string: delayFormatter.string(from: delay as NSNumber) ?? "1")
+        delayField.formatter = delayFormatter
+        loopField = NSTextField(string: loopFormatter.string(from: loops as NSNumber) ?? "0")
+        loopField.formatter = loopFormatter
+
+        let title = NSTextField(labelWithString: "Animated GIF")
+        title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+
+        let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "Delay (seconds):"), delayField],
+            [NSTextField(labelWithString: "Loops:"), loopField],
+        ])
+        grid.column(at: 0).xPlacement = .trailing
+        grid.rowAlignment = .firstBaseline
+        delayField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        loopField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+
+        let hint = NSTextField(labelWithString: "Delay is how long each frame stays on screen. 0 loops plays forever.")
+        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hint.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [title, grid, hint])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        stack.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
+        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
+        view = stack
+    }
+
+    /// Reads the fields, falling back to the defaults for anything left empty,
+    /// and remembers the values for next time.
+    func commit() -> (delay: Double, loopCount: Int) {
+        let delay = (delayField.objectValue as? NSNumber)?.doubleValue ?? 1.0
+        let loops = (loopField.objectValue as? NSNumber)?.intValue ?? 0
+        UserDefaults.standard.set(delay, forKey: Self.delayKey)
+        UserDefaults.standard.set(loops, forKey: Self.loopCountKey)
+        return (delay, loops)
     }
 }
