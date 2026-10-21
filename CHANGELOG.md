@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-21
+
+### Added
+- Series can be exported as an **animated GIF**. Pick GIF in the save panel and set how many seconds each frame stays on screen and how many times the animation plays (0 plays it forever). The values you used last are remembered. Frames with different crops are centered on a white canvas the size of the largest frame.
+
 ## [1.13.1] - 2026-10-05
 
 ### Added
@@ -120,7 +125,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.13.1...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/vucetica/screensnipe/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/vucetica/screensnipe/compare/v1.12.0...v1.13.1
 [1.12.0]: https://github.com/vucetica/screensnipe/compare/v1.11.1...v1.12.0
 [1.11.1]: https://github.com/vucetica/screensnipe/compare/v1.11.0...v1.11.1
