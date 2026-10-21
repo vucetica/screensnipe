@@ -183,15 +183,16 @@ enum ImageExportService {
         let cropRect: CGRect?
     }
 
-    /// Saves every frame of a series as one multi-page TIFF or PDF.
+    /// Saves every frame of a series as one multi-page TIFF or PDF, or an
+    /// animated GIF.
     ///
     /// TIFF is offered here rather than used as the library's storage format:
     /// appending a frame to a multi-page TIFF means rewriting the whole file
     /// with every frame resident in memory, and it is far larger than PNG.
     /// Handing the whole series to someone else is where one file earns its keep.
-    /// The chosen file type decides the scope: PNG and JPEG write the frame
-    /// currently open in the editor, TIFF and PDF write the whole series as one
-    /// multi-page file. `allFrames` is only consulted for the latter, so picking
+    /// The format picked in the panel's Format popup decides the scope: PNG
+    /// and JPEG write the frame currently open in the editor, TIFF, PDF, and
+    /// GIF write the whole series as one file. `allFrames` is only consulted for the latter, so picking
     /// PNG never pays the cost of loading every frame.
     static func saveSeries(
         currentFrame: SeriesExportFrame,
@@ -199,45 +200,40 @@ enum ImageExportService {
         defaultName: String? = nil
     ) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.tiff, .pdf, .gif, .png, .jpeg]
-        let baseName = defaultName ?? "Series"
-        panel.nameFieldStringValue = "\(baseName).tiff"
+        panel.nameFieldStringValue = defaultName ?? "Series"
         panel.canCreateDirectories = true
-        panel.message = "TIFF, PDF, and GIF save every frame in one file. PNG and JPEG save the current frame."
 
-        let gifOptions = GIFOptionsAccessory()
-        panel.accessoryView = gifOptions.view
+        let accessory = SeriesExportAccessory(panel: panel)
 
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let ext = url.pathExtension.lowercased()
-        switch ext {
-        case "tiff", "tif", "pdf", "gif":
-            let frames = allFrames()
-            guard !frames.isEmpty else { return }
-            let flattened = frames.map {
-                flatten(image: $0.image, annotations: $0.annotations, cropRect: $0.cropRect)
-            }
-            do {
-                switch ext {
-                case "pdf":
-                    try writePDF(flattened, to: url)
-                case "gif":
-                    let options = gifOptions.commit()
-                    try writeAnimatedGIF(flattened, delay: options.delay, loopCount: options.loopCount, to: url)
-                default:
-                    try writeMultiPageTIFF(flattened, to: url)
-                }
-            } catch {
-                ErrorReporter.report(error, context: "Failed to save series")
-            }
-        default:
+        let format = accessory.commit()
+        guard format.savesAllFrames else {
             let flattened = flatten(
                 image: currentFrame.image,
                 annotations: currentFrame.annotations,
                 cropRect: currentFrame.cropRect
             )
             write(flattened, to: url)
+            return
+        }
+
+        let frames = allFrames()
+        guard !frames.isEmpty else { return }
+        let flattened = frames.map {
+            flatten(image: $0.image, annotations: $0.annotations, cropRect: $0.cropRect)
+        }
+        do {
+            switch format {
+            case .pdf:
+                try writePDF(flattened, to: url)
+            case .gif:
+                try writeAnimatedGIF(flattened, delay: accessory.gifDelay, loopCount: accessory.gifLoopCount, to: url)
+            default:
+                try writeMultiPageTIFF(flattened, to: url)
+            }
+        } catch {
+            ErrorReporter.report(error, context: "Failed to save series")
         }
     }
 
@@ -363,21 +359,82 @@ enum ImageExportService {
     }
 }
 
-/// The animated GIF fields shown under the series save panel. The last values
-/// used are remembered so a repeat export does not need retyping.
+/// The file formats a series can be saved in.
+private enum SeriesExportFormat: String, CaseIterable {
+    case tiff, pdf, gif, png, jpeg
+
+    var title: String {
+        switch self {
+        case .tiff: "TIFF"
+        case .pdf: "PDF"
+        case .gif: "Animated GIF"
+        case .png: "PNG"
+        case .jpeg: "JPEG"
+        }
+    }
+
+    var contentType: UTType {
+        switch self {
+        case .tiff: .tiff
+        case .pdf: .pdf
+        case .gif: .gif
+        case .png: .png
+        case .jpeg: .jpeg
+        }
+    }
+
+    /// TIFF, PDF, and GIF hold every frame in one file. PNG and JPEG hold a
+    /// single image, so they save the frame open in the editor.
+    var savesAllFrames: Bool {
+        switch self {
+        case .tiff, .pdf, .gif: true
+        case .png, .jpeg: false
+        }
+    }
+}
+
+/// The controls under the series save panel: a Format popup, and the animated
+/// GIF fields, which only show while GIF is picked. Picking a format changes
+/// the file name's extension. The last format and GIF values used are
+/// remembered so a repeat export does not need choosing again.
 @MainActor
-private final class GIFOptionsAccessory {
+private final class SeriesExportAccessory: NSObject {
+    private static let formatKey = "seriesExportFormat"
     private static let delayKey = "seriesGIFFrameDelay"
     private static let loopCountKey = "seriesGIFLoopCount"
 
-    let view: NSView
+    private weak var panel: NSSavePanel?
+    private let stack: NSStackView
+    private let formatPopup: NSPopUpButton
+    private let gifHint: NSTextField
     private let delayField: NSTextField
     private let loopField: NSTextField
+    private let fixedWidth: CGFloat
 
-    init() {
+    private var format: SeriesExportFormat {
+        SeriesExportFormat.allCases[formatPopup.indexOfSelectedItem]
+    }
+
+    /// Seconds each GIF frame stays on screen.
+    var gifDelay: Double {
+        (delayField.objectValue as? NSNumber)?.doubleValue ?? 1.0
+    }
+
+    /// How many times the GIF plays; 0 loops forever.
+    var gifLoopCount: Int {
+        (loopField.objectValue as? NSNumber)?.intValue ?? 0
+    }
+
+    init(panel: NSSavePanel) {
+        self.panel = panel
         let defaults = UserDefaults.standard
+        let savedFormat = defaults.string(forKey: Self.formatKey).flatMap(SeriesExportFormat.init) ?? .tiff
         let delay = defaults.object(forKey: Self.delayKey) as? Double ?? 1.0
         let loops = defaults.object(forKey: Self.loopCountKey) as? Int ?? 0
+
+        formatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
+        formatPopup.addItems(withTitles: SeriesExportFormat.allCases.map(\.title))
+        formatPopup.selectItem(at: SeriesExportFormat.allCases.firstIndex(of: savedFormat) ?? 0)
 
         let delayFormatter = NumberFormatter()
         delayFormatter.numberStyle = .decimal
@@ -395,39 +452,79 @@ private final class GIFOptionsAccessory {
         delayField.formatter = delayFormatter
         loopField = NSTextField(string: loopFormatter.string(from: loops as NSNumber) ?? "0")
         loopField.formatter = loopFormatter
-
-        let title = NSTextField(labelWithString: "Animated GIF")
-        title.font = .boldSystemFont(ofSize: NSFont.systemFontSize)
+        delayField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        loopField.widthAnchor.constraint(equalToConstant: 70).isActive = true
 
         let grid = NSGridView(views: [
+            [NSTextField(labelWithString: "Format:"), formatPopup],
             [NSTextField(labelWithString: "Delay (seconds):"), delayField],
             [NSTextField(labelWithString: "Loops:"), loopField],
         ])
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
-        delayField.widthAnchor.constraint(equalToConstant: 70).isActive = true
-        loopField.widthAnchor.constraint(equalToConstant: 70).isActive = true
 
-        let hint = NSTextField(labelWithString: "Delay is how long each frame stays on screen. 0 loops plays forever.")
-        hint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
-        hint.textColor = .secondaryLabelColor
+        // The GIF rows share the grid with Format so their labels line up.
+        gifHint = NSTextField(labelWithString: "Delay is how long each frame stays on screen. 0 loops plays forever.")
+        gifHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        gifHint.textColor = .secondaryLabelColor
 
-        let stack = NSStackView(views: [title, grid, hint])
+        stack = NSStackView(views: [grid, gifHint])
         stack.orientation = .vertical
-        stack.alignment = .leading
+        stack.alignment = .centerX
         stack.spacing = 6
         stack.edgeInsets = NSEdgeInsets(top: 10, left: 20, bottom: 10, right: 20)
-        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
-        view = stack
+
+        // Sized with the GIF rows showing, the widest layout, and kept at that
+        // width so the Format popup does not shift when the rows hide.
+        fixedWidth = stack.fittingSize.width
+
+        super.init()
+
+        formatPopup.target = self
+        formatPopup.action = #selector(formatChanged(_:))
+        applyFormat()
     }
 
-    /// Reads the fields, falling back to the defaults for anything left empty,
-    /// and remembers the values for next time.
-    func commit() -> (delay: Double, loopCount: Int) {
-        let delay = (delayField.objectValue as? NSNumber)?.doubleValue ?? 1.0
-        let loops = (loopField.objectValue as? NSNumber)?.intValue ?? 0
-        UserDefaults.standard.set(delay, forKey: Self.delayKey)
-        UserDefaults.standard.set(loops, forKey: Self.loopCountKey)
-        return (delay, loops)
+    @objc private func formatChanged(_ sender: NSPopUpButton) {
+        applyFormat()
+    }
+
+    /// Updates the panel's file type and extension, and which fields are
+    /// visible to match the selected format.
+    private func applyFormat() {
+        guard let panel else { return }
+        let format = self.format
+
+        panel.allowedContentTypes = [format.contentType]
+        if let ext = format.contentType.preferredFilenameExtension {
+            let base = (panel.nameFieldStringValue as NSString).deletingPathExtension
+            panel.nameFieldStringValue = "\(base).\(ext)"
+        }
+
+        let showsGIF = format == .gif
+        if let grid = stack.arrangedSubviews.first as? NSGridView {
+            grid.row(at: 1).isHidden = !showsGIF
+            grid.row(at: 2).isHidden = !showsGIF
+        }
+        gifHint.isHidden = !showsGIF
+
+        // The panel only lays out its accessory when it is assigned, so the
+        // view is reassigned after its size changes.
+        stack.layoutSubtreeIfNeeded()
+        stack.frame = NSRect(x: 0, y: 0, width: fixedWidth, height: stack.fittingSize.height)
+        panel.accessoryView = nil
+        panel.accessoryView = stack
+    }
+
+    /// Remembers the chosen format and GIF values for next time and returns
+    /// the format to save in.
+    func commit() -> SeriesExportFormat {
+        let defaults = UserDefaults.standard
+        defaults.set(format.rawValue, forKey: Self.formatKey)
+        if format == .gif {
+            defaults.set(gifDelay, forKey: Self.delayKey)
+            defaults.set(gifLoopCount, forKey: Self.loopCountKey)
+        }
+        return format
     }
 }
