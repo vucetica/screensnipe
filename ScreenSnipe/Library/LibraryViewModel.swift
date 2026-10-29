@@ -363,9 +363,15 @@ final class LibraryViewModel: ObservableObject {
         guard let id = currentEntryID,
               let entry = LibraryManager.shared.entries.first(where: { $0.id == id }),
               let manifest = currentSeriesManifest else { return [] }
+        return seriesExportFrames(for: entry, manifest: manifest)
+    }
 
+    /// Every frame of any series. When it is the series open in the editor,
+    /// the open frame comes from the live store, as above.
+    private func seriesExportFrames(for entry: LibraryEntry, manifest: SeriesManifest) -> [ImageExportService.SeriesExportFrame] {
+        let isOpen = entry.id == currentEntryID
         return manifest.frames.compactMap { frame in
-            if frame.index == currentFrameIndex, let image = selectedImage {
+            if isOpen, frame.index == currentFrameIndex, let image = selectedImage {
                 return ImageExportService.SeriesExportFrame(
                     image: image,
                     annotations: annotationStore.annotations,
@@ -438,6 +444,9 @@ final class LibraryViewModel: ObservableObject {
         // Sources are built from LibraryEntry.metadata, so a trim dragged within
         // the last 300 ms has to reach disk before the entries are snapshotted.
         flushPendingTrimSave()
+        // A series stitch copies annotation sidecars from disk, so the same goes
+        // for an annotation edit that has not been saved yet.
+        flushPendingSave()
         let allEntries = LibraryManager.shared.entries
         stitchEntries = allEntries
             .filter { selectedEntryIDs.contains($0.id) }
@@ -449,6 +458,11 @@ final class LibraryViewModel: ObservableObject {
         stitchProgress = 0
         showStitchProgress = true
         stitchError = nil
+
+        if config.output == .series {
+            performSeriesStitch(config)
+            return
+        }
 
         // Resolve library URL on MainActor before detaching
         let libraryDir = LibraryManager.shared.libraryURL ?? URL(fileURLWithPath: NSTemporaryDirectory())
@@ -487,6 +501,55 @@ final class LibraryViewModel: ObservableObject {
         }
     }
 
+    /// Copies the frames of every selected screenshot and series into a new
+    /// series entry.
+    private func performSeriesStitch(_ config: StitchConfiguration) {
+        let (frames, target) = config.resolvedSeriesFrames()
+
+        stitchTask = Task {
+            // The staging folder lives in the library, so the library has to
+            // exist before anything is written.
+            guard await LibraryManager.shared.ensureLibraryLocation() else {
+                self.showStitchProgress = false
+                return
+            }
+            do {
+                let stagingURL = try LibraryManager.shared.makeSeriesStagingURL()
+                // Detached so copying many frames does not block the main thread.
+                // A detached task is not cancelled with this one, so Cancel is
+                // passed on to it by hand.
+                let copy = Task.detached {
+                    try SeriesStitchService.stitch(frames: frames, target: target, into: stagingURL) { fraction in
+                        Task { @MainActor in self.stitchProgress = fraction }
+                    }
+                }
+                let manifest = try await withTaskCancellationHandler {
+                    try await copy.value
+                } onCancel: {
+                    copy.cancel()
+                }
+
+                do {
+                    // Cancel can still arrive after the last frame is copied.
+                    try Task.checkCancellation()
+                    let entry = try LibraryManager.shared.publishStitchedSeries(from: stagingURL, manifest: manifest)
+                    self.showStitchProgress = false
+                    self.objectWillChange.send()
+                    self.selectedEntryIDs = [entry.id]
+                } catch {
+                    try? FileManager.default.removeItem(at: stagingURL)
+                    throw error
+                }
+            } catch is CancellationError {
+                self.showStitchProgress = false
+            } catch {
+                self.showStitchProgress = false
+                self.stitchError = error.localizedDescription
+                ErrorReporter.report(error, context: "Failed to stitch captures into a series")
+            }
+        }
+    }
+
     func cancelStitch() {
         stitchTask?.cancel()
         stitchTask = nil
@@ -508,8 +571,15 @@ final class LibraryViewModel: ObservableObject {
         // Flatten on the main actor before handing Sendable data to the service.
         let payload: ICloudSharePayload
         switch entry.mediaType {
-        case .image, .series:
-            // For a series this publishes the frame currently open in the editor.
+        case .series:
+            // Asks for the delay and loop count first, the same values the
+            // save panel offers for an animated GIF.
+            Task {
+                guard let options = await SeriesGIFSettings.ask(in: LibraryWindow.current ?? NSApp.keyWindow) else { return }
+                publishShareLink(for: entry, payload: .seriesGIF(delay: options.delay, loopCount: options.loopCount))
+            }
+            return
+        case .image:
             guard let data = flattenedPNGData(for: entry) else {
                 ErrorReporter.report(
                     NSError(domain: "LibraryViewModel", code: 3, userInfo: [NSLocalizedDescriptionKey: "Failed to render the image for sharing"]),
@@ -525,7 +595,10 @@ final class LibraryViewModel: ObservableObject {
             // where the store holds a different recording's trim.
             payload = .file(url, trim: entry.metadata.trim?.timeRange)
         }
+        publishShareLink(for: entry, payload: payload)
+    }
 
+    private func publishShareLink(for entry: LibraryEntry, payload: ICloudSharePayload) {
         showShareLinkProgress = true
         shareLinkTask = Task {
             do {
@@ -533,6 +606,16 @@ final class LibraryViewModel: ObservableObject {
                 switch payload {
                 case .imageData(let data):
                     link = try await ICloudShareService.publish(data: data, entryID: entry.id, fileExtension: "png")
+                case .seriesGIF(let delay, let loopCount):
+                    // Lets the progress sheet draw before the main actor is
+                    // busy flattening frames.
+                    await Task.yield()
+                    let data = try seriesGIFData(for: entry, delay: delay, loopCount: loopCount)
+                    try Task.checkCancellation()
+                    // Removes a PNG published for this series before series
+                    // links became GIFs, so it does not stay public on its own.
+                    try await ICloudShareService.revoke(entryID: entry.id)
+                    link = try await ICloudShareService.publish(data: data, entryID: entry.id, fileExtension: "gif")
                 case .file(let url, let trim):
                     let staged = try await VideoTrimStaging.materialize(
                         videoURL: url, trim: trim, name: entry.id
@@ -594,7 +677,24 @@ final class LibraryViewModel: ObservableObject {
 
     private enum ICloudSharePayload {
         case imageData(Data)
+        /// Every frame of the series, flattened into an animated GIF.
+        case seriesGIF(delay: Double, loopCount: Int)
         case file(URL, trim: CMTimeRange?)
+    }
+
+    /// Renders a series as an animated GIF. Includes unsaved edits when the
+    /// series is open in the editor.
+    private func seriesGIFData(for entry: LibraryEntry, delay: Double, loopCount: Int) throws -> Data {
+        let open = entry.id == currentEntryID ? currentSeriesManifest : nil
+        let manifest = try open ?? LibraryManager.shared.loadSeriesManifest(for: entry)
+        let images = seriesExportFrames(for: entry, manifest: manifest).map {
+            ImageExportService.flatten(image: $0.image, annotations: $0.annotations, cropRect: $0.cropRect)
+        }
+        return try ImageExportService.animatedGIFData(
+            images,
+            delay: delay,
+            loopCount: loopCount
+        )
     }
 
     private static let shareLinkInfoShownKey = "icloudLinkInfoShown"

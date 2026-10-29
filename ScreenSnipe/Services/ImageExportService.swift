@@ -280,12 +280,19 @@ enum ImageExportService {
     /// in size when they have different crops, so every frame is centered on a
     /// white canvas as large as the biggest frame.
     private static func writeAnimatedGIF(_ images: [NSImage], delay: Double, loopCount: Int, to url: URL) throws {
+        try animatedGIFData(images, delay: delay, loopCount: loopCount).write(to: url, options: .atomic)
+    }
+
+    /// Encodes the frames as an animated GIF in memory. Used by
+    /// `writeAnimatedGIF` and by the iCloud link for a series.
+    static func animatedGIFData(_ images: [NSImage], delay: Double, loopCount: Int) throws -> Data {
         let cgImages = images.compactMap { $0.cgImage(forProposedRect: nil, context: nil, hints: nil) }
         let canvasWidth = cgImages.map(\.width).max() ?? 0
         let canvasHeight = cgImages.map(\.height).max() ?? 0
 
+        let data = NSMutableData()
         guard !cgImages.isEmpty,
-              let destination = CGImageDestinationCreateWithURL(url as CFURL, UTType.gif.identifier as CFString, cgImages.count, nil)
+              let destination = CGImageDestinationCreateWithData(data, UTType.gif.identifier as CFString, cgImages.count, nil)
         else {
             throw NSError(domain: "ImageExportService", code: 12, userInfo: [
                 NSLocalizedDescriptionKey: "Could not build an animated GIF from the series frames.",
@@ -315,6 +322,7 @@ enum ImageExportService {
                 NSLocalizedDescriptionKey: "Could not write the animated GIF.",
             ])
         }
+        return data as Data
     }
 
     /// Centers `image` on a white canvas of the given pixel size.
@@ -393,6 +401,118 @@ private enum SeriesExportFormat: String, CaseIterable {
     }
 }
 
+/// The animated GIF values for a series, and the fields that edit them.
+///
+/// Shared by the series save panel and the iCloud link for a series, so both
+/// show the same fields and remember the same values.
+enum SeriesGIFSettings {
+    private static let delayKey = "seriesGIFFrameDelay"
+    private static let loopCountKey = "seriesGIFLoopCount"
+
+    static let hint = "Delay is how long each frame stays on screen. 0 loops plays forever."
+
+    /// Seconds each frame stays on screen.
+    static var delay: Double {
+        UserDefaults.standard.object(forKey: delayKey) as? Double ?? 1.0
+    }
+
+    /// How many times the GIF plays; 0 loops forever.
+    static var loopCount: Int {
+        UserDefaults.standard.object(forKey: loopCountKey) as? Int ?? 0
+    }
+
+    static func save(delay: Double, loopCount: Int) {
+        UserDefaults.standard.set(delay, forKey: delayKey)
+        UserDefaults.standard.set(loopCount, forKey: loopCountKey)
+    }
+
+    /// The Delay and Loops fields, filled in with the remembered values.
+    @MainActor
+    final class Fields {
+        let delayField: NSTextField
+        let loopField: NSTextField
+
+        var delay: Double {
+            (delayField.objectValue as? NSNumber)?.doubleValue ?? 1.0
+        }
+
+        var loopCount: Int {
+            (loopField.objectValue as? NSNumber)?.intValue ?? 0
+        }
+
+        /// Label and field pairs, ready to be rows of an `NSGridView`.
+        var rows: [[NSView]] {
+            [
+                [NSTextField(labelWithString: "Delay (seconds):"), delayField],
+                [NSTextField(labelWithString: "Loops:"), loopField],
+            ]
+        }
+
+        init() {
+            let delayFormatter = NumberFormatter()
+            delayFormatter.numberStyle = .decimal
+            delayFormatter.minimum = 0.01
+            delayFormatter.maximum = 600
+            delayFormatter.maximumFractionDigits = 2
+
+            let loopFormatter = NumberFormatter()
+            loopFormatter.numberStyle = .none
+            loopFormatter.allowsFloats = false
+            loopFormatter.minimum = 0
+            loopFormatter.maximum = 65535
+
+            delayField = NSTextField(string: delayFormatter.string(from: SeriesGIFSettings.delay as NSNumber) ?? "1")
+            delayField.formatter = delayFormatter
+            loopField = NSTextField(string: loopFormatter.string(from: SeriesGIFSettings.loopCount as NSNumber) ?? "0")
+            loopField.formatter = loopFormatter
+            delayField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+            loopField.widthAnchor.constraint(equalToConstant: 70).isActive = true
+        }
+
+        func save() {
+            SeriesGIFSettings.save(delay: delay, loopCount: loopCount)
+        }
+    }
+
+    /// Asks for the GIF delay and loop count before a series is shared as an
+    /// iCloud link. Returns nil when cancelled. The values are remembered, the
+    /// same as in the save panel.
+    @MainActor
+    static func ask(in window: NSWindow?) async -> (delay: Double, loopCount: Int)? {
+        let fields = Fields()
+        let grid = NSGridView(views: fields.rows)
+        grid.column(at: 0).xPlacement = .trailing
+        grid.rowAlignment = .firstBaseline
+
+        let hintLabel = NSTextField(labelWithString: hint)
+        hintLabel.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
+        hintLabel.textColor = .secondaryLabelColor
+
+        let stack = NSStackView(views: [grid, hintLabel])
+        stack.orientation = .vertical
+        stack.alignment = .centerX
+        stack.spacing = 6
+        stack.frame = NSRect(origin: .zero, size: stack.fittingSize)
+
+        let alert = NSAlert()
+        alert.messageText = "Share Series as Animated GIF"
+        alert.addButton(withTitle: "Copy Link")
+        alert.addButton(withTitle: "Cancel")
+        alert.accessoryView = stack
+        alert.window.initialFirstResponder = fields.delayField
+
+        let response: NSApplication.ModalResponse
+        if let window {
+            response = await alert.beginSheetModal(for: window)
+        } else {
+            response = alert.runModal()
+        }
+        guard response == .alertFirstButtonReturn else { return nil }
+        fields.save()
+        return (fields.delay, fields.loopCount)
+    }
+}
+
 /// The controls under the series save panel: a Format popup, and the animated
 /// GIF fields, which only show while GIF is picked. Picking a format changes
 /// the file name's extension. The last format and GIF values used are
@@ -400,15 +520,12 @@ private enum SeriesExportFormat: String, CaseIterable {
 @MainActor
 private final class SeriesExportAccessory: NSObject {
     private static let formatKey = "seriesExportFormat"
-    private static let delayKey = "seriesGIFFrameDelay"
-    private static let loopCountKey = "seriesGIFLoopCount"
 
     private weak var panel: NSSavePanel?
     private let stack: NSStackView
     private let formatPopup: NSPopUpButton
     private let gifHint: NSTextField
-    private let delayField: NSTextField
-    private let loopField: NSTextField
+    private let gifFields: SeriesGIFSettings.Fields
     private let fixedWidth: CGFloat
 
     private var format: SeriesExportFormat {
@@ -417,54 +534,31 @@ private final class SeriesExportAccessory: NSObject {
 
     /// Seconds each GIF frame stays on screen.
     var gifDelay: Double {
-        (delayField.objectValue as? NSNumber)?.doubleValue ?? 1.0
+        gifFields.delay
     }
 
     /// How many times the GIF plays; 0 loops forever.
     var gifLoopCount: Int {
-        (loopField.objectValue as? NSNumber)?.intValue ?? 0
+        gifFields.loopCount
     }
 
     init(panel: NSSavePanel) {
         self.panel = panel
         let defaults = UserDefaults.standard
         let savedFormat = defaults.string(forKey: Self.formatKey).flatMap(SeriesExportFormat.init) ?? .tiff
-        let delay = defaults.object(forKey: Self.delayKey) as? Double ?? 1.0
-        let loops = defaults.object(forKey: Self.loopCountKey) as? Int ?? 0
 
         formatPopup = NSPopUpButton(frame: .zero, pullsDown: false)
         formatPopup.addItems(withTitles: SeriesExportFormat.allCases.map(\.title))
         formatPopup.selectItem(at: SeriesExportFormat.allCases.firstIndex(of: savedFormat) ?? 0)
 
-        let delayFormatter = NumberFormatter()
-        delayFormatter.numberStyle = .decimal
-        delayFormatter.minimum = 0.01
-        delayFormatter.maximum = 600
-        delayFormatter.maximumFractionDigits = 2
-
-        let loopFormatter = NumberFormatter()
-        loopFormatter.numberStyle = .none
-        loopFormatter.allowsFloats = false
-        loopFormatter.minimum = 0
-        loopFormatter.maximum = 65535
-
-        delayField = NSTextField(string: delayFormatter.string(from: delay as NSNumber) ?? "1")
-        delayField.formatter = delayFormatter
-        loopField = NSTextField(string: loopFormatter.string(from: loops as NSNumber) ?? "0")
-        loopField.formatter = loopFormatter
-        delayField.widthAnchor.constraint(equalToConstant: 70).isActive = true
-        loopField.widthAnchor.constraint(equalToConstant: 70).isActive = true
-
-        let grid = NSGridView(views: [
-            [NSTextField(labelWithString: "Format:"), formatPopup],
-            [NSTextField(labelWithString: "Delay (seconds):"), delayField],
-            [NSTextField(labelWithString: "Loops:"), loopField],
-        ])
+        let fields = SeriesGIFSettings.Fields()
+        gifFields = fields
+        let grid = NSGridView(views: [[NSTextField(labelWithString: "Format:"), formatPopup]] + fields.rows)
         grid.column(at: 0).xPlacement = .trailing
         grid.rowAlignment = .firstBaseline
 
         // The GIF rows share the grid with Format so their labels line up.
-        gifHint = NSTextField(labelWithString: "Delay is how long each frame stays on screen. 0 loops plays forever.")
+        gifHint = NSTextField(labelWithString: SeriesGIFSettings.hint)
         gifHint.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         gifHint.textColor = .secondaryLabelColor
 
@@ -522,8 +616,7 @@ private final class SeriesExportAccessory: NSObject {
         let defaults = UserDefaults.standard
         defaults.set(format.rawValue, forKey: Self.formatKey)
         if format == .gif {
-            defaults.set(gifDelay, forKey: Self.delayKey)
-            defaults.set(gifLoopCount, forKey: Self.loopCountKey)
+            gifFields.save()
         }
         return format
     }

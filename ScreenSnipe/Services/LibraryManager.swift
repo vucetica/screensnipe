@@ -314,6 +314,52 @@ final class LibraryManager: ObservableObject {
         try? FileManager.default.removeItem(at: folderURL)
     }
 
+    /// A folder inside the library for `SeriesStitchService` to build a series
+    /// in. The leading dot hides it in Finder, and its name is not a timestamp,
+    /// so `reload()` skips it.
+    func makeSeriesStagingURL() throws -> URL {
+        guard let baseURL = libraryURL else {
+            throw NSError(domain: "LibraryManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No library location set"])
+        }
+        return baseURL.appendingPathComponent(".stitch-\(UUID().uuidString)", isDirectory: true)
+    }
+
+    /// Moves a series built in a staging folder into the library as a new
+    /// entry. The move is a rename within the library folder, so the entry
+    /// appears complete or not at all.
+    ///
+    /// This does not go through `beginSeries`/`finalizeSeries`, because those
+    /// track the one series being captured, and a capture can be running while
+    /// a stitch finishes.
+    func publishStitchedSeries(from stagingURL: URL, manifest: SeriesManifest) throws -> LibraryEntry {
+        guard let baseURL = libraryURL else {
+            throw NSError(domain: "LibraryManager", code: 2, userInfo: [NSLocalizedDescriptionKey: "No library location set"])
+        }
+        try manifest.write(to: stagingURL.appendingPathComponent("series.json"))
+        if let first = manifest.frames.first,
+           let image = NSImage(contentsOf: stagingURL.appendingPathComponent(first.file)) {
+            try? writeSeriesThumbnail(from: image, to: stagingURL)
+        }
+
+        let folderName = Self.timestampString()
+        let folderURL = baseURL.appendingPathComponent(folderName)
+        try FileManager.default.moveItem(at: stagingURL, to: folderURL)
+
+        let formatter = DateFormatter()
+        formatter.dateFormat = Self.dateFormat
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+
+        let entry = LibraryEntry(
+            id: folderName,
+            folderURL: folderURL,
+            captureDate: formatter.date(from: folderName) ?? Date(),
+            mediaType: .series,
+            metadata: CaptureMetadata()
+        )
+        entries.insert(entry, at: 0)
+        return entry
+    }
+
     func loadSeriesManifest(for entry: LibraryEntry) throws -> SeriesManifest {
         try SeriesManifest.load(from: entry.seriesManifestURL)
     }
