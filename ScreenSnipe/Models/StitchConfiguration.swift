@@ -33,9 +33,25 @@ struct StitchSource: Sendable {
 }
 
 struct StitchConfiguration: Sendable {
+    /// What a stitch produces.
+    enum Output: Sendable {
+        /// One video, with images shown for `imageDurationSeconds` each.
+        case video
+        /// A new series with one frame per image, keeping each frame's
+        /// annotations and crop editable.
+        case series
+    }
+
     var items: [LibraryEntry]
     var pauseDurationSeconds: Double
     var imageDurationSeconds: Double
+    var output: Output = .video
+
+    /// A series can only hold images, so stitching into one is offered only
+    /// when no recording is selected.
+    static func canStitchAsSeries(_ entries: [LibraryEntry]) -> Bool {
+        !entries.isEmpty && entries.allSatisfy { $0.mediaType != .video }
+    }
 
     /// Expands entries into playable sources, turning each series into its
     /// ordered frames.
@@ -66,5 +82,55 @@ struct StitchConfiguration: Sendable {
             }
         }
         return sources
+    }
+}
+
+/// One frame to copy into a stitched series.
+struct SeriesStitchFrame: Sendable {
+    let imageURL: URL
+    /// The annotation sidecar that goes with the image. A missing file becomes
+    /// an empty sidecar in the new series.
+    let annotationsURL: URL
+    let capturedAt: Date
+    /// Known for series frames from their manifest. Nil for screenshots, whose
+    /// size is read from the PNG.
+    let pixelSize: (width: Int, height: Int)?
+    let pointSize: CGSize?
+}
+
+extension StitchConfiguration {
+    /// The frames a series stitch copies, in order, plus the capture target of
+    /// the first series among the items, which the new manifest reuses.
+    func resolvedSeriesFrames() -> (frames: [SeriesStitchFrame], target: SeriesManifest.Target?) {
+        var frames: [SeriesStitchFrame] = []
+        var target: SeriesManifest.Target?
+        for entry in items {
+            switch entry.mediaType {
+            case .image:
+                guard let url = entry.mediaURL else { continue }
+                frames.append(SeriesStitchFrame(
+                    imageURL: url,
+                    annotationsURL: entry.annotationsURL,
+                    capturedAt: entry.captureDate,
+                    pixelSize: nil,
+                    pointSize: nil
+                ))
+            case .series:
+                guard let manifest = try? SeriesManifest.load(from: entry.seriesManifestURL) else { continue }
+                target = target ?? manifest.target
+                for frame in manifest.frames {
+                    frames.append(SeriesStitchFrame(
+                        imageURL: entry.url(forFramePath: frame.file),
+                        annotationsURL: entry.url(forFramePath: frame.annotations),
+                        capturedAt: frame.capturedAt,
+                        pixelSize: (frame.pixelWidth, frame.pixelHeight),
+                        pointSize: CGSize(width: frame.pointWidth, height: frame.pointHeight)
+                    ))
+                }
+            case .video:
+                continue
+            }
+        }
+        return (frames, target)
     }
 }

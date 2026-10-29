@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.15.0] - 2026-10-29
+
+### Added
+- The video save panel has a **Preset** popup. **Google Workspace** is the new default. It converts the recording to H.264 at up to 1080p, with a constant 30 fps frame rate and all audio merged into one track, and places the playback index at the front of the file. Google Drive, Meet, and Vids process files like this much faster than a full-size HEVC recording. **Original Quality** keeps the previous behavior, which saves the recording as it was captured. **Custom** lets you choose the resolution, codec (H.264 or HEVC), quality, and frame rate yourself. The preset you used and your custom values are remembered.
+- **Stitch into a series of images.** When every selected item is a screenshot or a series, the Stitch Together dialog lets you choose between a video and a series of images. A series stitch creates a new series with one frame for each screenshot and each series frame, in the order shown in the dialog. Every frame keeps its annotations and crop, and you can still edit them. The original items are not changed.
+
+### Changed
+- Trimmed exports, shared trims, and iCloud links of trimmed recordings now put the playback index at the front of the file, so web players can start playing sooner.
+
+### Fixed
+- **Copy iCloud Link** on a series now publishes an animated GIF of every frame, with annotations and crops applied. Before, it published a single frame. Before publishing, it asks for the frame delay and loop count, the same fields the series save panel shows for an animated GIF. The values you pick are remembered in both places. A series that already has a PNG link keeps it until you choose Stop Sharing and copy the link again.
+
 ## [1.14.1] - 2026-10-21
 
 ### Changed
@@ -130,7 +142,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.14.1...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.15.0...HEAD
+[1.15.0]: https://github.com/vucetica/screensnipe/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/vucetica/screensnipe/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/vucetica/screensnipe/compare/v1.13.1...v1.14.0
 [1.13.1]: https://github.com/vucetica/screensnipe/compare/v1.12.0...v1.13.1
