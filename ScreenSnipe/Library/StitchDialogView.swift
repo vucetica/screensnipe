@@ -6,6 +6,7 @@ struct StitchDialogView: View {
     @State private var pauseDuration: Double = 2
     @State private var imageDuration: Double = 5
     @State private var draggingItem: LibraryEntry?
+    @State private var output: StitchConfiguration.Output = .video
 
     init(viewModel: LibraryViewModel) {
         self.viewModel = viewModel
@@ -44,27 +45,40 @@ struct StitchDialogView: View {
 
             Divider()
 
-            // Settings
-            VStack(alignment: .leading, spacing: 12) {
-                HStack {
-                    Text("Pause between clips:")
-                        .frame(width: 160, alignment: .leading)
-                    Slider(value: $pauseDuration, in: 0...10, step: 0.5)
-                    Text("\(pauseDuration, specifier: "%.1f")s")
-                        .monospacedDigit()
-                        .frame(width: 40, alignment: .trailing)
+            // Only offered when nothing selected is a recording, since a
+            // series can only hold images.
+            if canStitchAsSeries {
+                Picker("Create:", selection: $output) {
+                    Text("Video").tag(StitchConfiguration.Output.video)
+                    Text("Series of Images").tag(StitchConfiguration.Output.series)
                 }
-
-                HStack {
-                    Text("Image display duration:")
-                        .frame(width: 160, alignment: .leading)
-                    Slider(value: $imageDuration, in: 1...30, step: 1)
-                    Text("\(Int(imageDuration))s")
-                        .monospacedDigit()
-                        .frame(width: 40, alignment: .trailing)
-                }
+                .pickerStyle(.segmented)
+                .fixedSize()
             }
-            .padding(.horizontal)
+
+            // Settings
+            if output == .video {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack {
+                        Text("Pause between clips:")
+                            .frame(width: 160, alignment: .leading)
+                        Slider(value: $pauseDuration, in: 0...10, step: 0.5)
+                        Text("\(pauseDuration, specifier: "%.1f")s")
+                            .monospacedDigit()
+                            .frame(width: 40, alignment: .trailing)
+                    }
+
+                    HStack {
+                        Text("Image display duration:")
+                            .frame(width: 160, alignment: .leading)
+                        Slider(value: $imageDuration, in: 1...30, step: 1)
+                        Text("\(Int(imageDuration))s")
+                            .monospacedDigit()
+                            .frame(width: 40, alignment: .trailing)
+                    }
+                }
+                .padding(.horizontal)
+            }
 
             Divider()
 
@@ -81,7 +95,8 @@ struct StitchDialogView: View {
                     let config = StitchConfiguration(
                         items: items,
                         pauseDurationSeconds: pauseDuration,
-                        imageDurationSeconds: imageDuration
+                        imageDurationSeconds: imageDuration,
+                        output: canStitchAsSeries ? output : .video
                     )
                     viewModel.showStitchDialog = false
                     viewModel.performStitch(config)
@@ -91,6 +106,12 @@ struct StitchDialogView: View {
         }
         .padding(20)
         .frame(width: 600)
+    }
+}
+
+extension StitchDialogView {
+    private var canStitchAsSeries: Bool {
+        StitchConfiguration.canStitchAsSeries(items)
     }
 }
 
