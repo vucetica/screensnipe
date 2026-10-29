@@ -1,5 +1,6 @@
 import AVFoundation
 import Foundation
+import VideoToolbox
 
 /// Nonisolated engine that writes a time-bounded copy of a recording.
 ///
@@ -23,8 +24,13 @@ import Foundation
 /// PTS/DTS retiming hazard entirely, because the encoder mints fresh timing
 /// rather than something having to guess decode order for B-frames.
 /// `StitchService` already re-encodes every source on the same settings, so the
-/// quality bar is unchanged. Untrimmed exports never come through here, so they
-/// stay a lossless copy.
+/// quality bar is unchanged. Untrimmed exports with the Original Quality preset
+/// never come through here, so they stay a lossless copy.
+///
+/// The same engine also writes the converted exports from the save panel's
+/// Google Workspace and Custom presets, which can scale the video, switch to
+/// H.264, and resample it to a constant frame rate. Those can run without a
+/// trim, in which case the whole recording is exported.
 enum VideoTrimExporter {
 
     enum AudioMode: Sendable {
@@ -51,13 +57,15 @@ enum VideoTrimExporter {
         }
     }
 
-    /// Writes `range` of `sourceURL` to `destinationURL` as an MP4.
+    /// Writes `range` of `sourceURL` to `destinationURL` as an MP4, or the
+    /// whole recording when `range` is nil.
     /// Honours `Task` cancellation, removing any partial file on the way out.
     static func export(
         sourceURL: URL,
         destinationURL: URL,
-        range: CMTimeRange,
+        range: CMTimeRange?,
         audioMode: AudioMode,
+        encoding: VideoEncoding = .original,
         progress: (@Sendable (Double) -> Void)? = nil
     ) async throws {
         let asset = AVURLAsset(url: sourceURL)
@@ -66,7 +74,8 @@ enum VideoTrimExporter {
         guard let videoTrack = videoTracks.first else { throw TrimExportError.noVideoTrack }
 
         let assetDuration = try await asset.load(.duration)
-        let clipped = range.intersection(CMTimeRange(start: .zero, duration: assetDuration))
+        let fullRange = CMTimeRange(start: .zero, duration: assetDuration)
+        let clipped = range.map { $0.intersection(fullRange) } ?? fullRange
         guard clipped.duration > .zero else { throw TrimExportError.emptyRange }
 
         if FileManager.default.fileExists(atPath: destinationURL.path) {
@@ -85,22 +94,34 @@ enum VideoTrimExporter {
         reader.add(videoOutput)
 
         let writer = try AVAssetWriter(outputURL: destinationURL, fileType: .mp4)
+        // Puts the index at the front of the file, so Google Drive and other
+        // web players can start playing before the whole file has arrived.
+        writer.shouldOptimizeForNetworkUse = true
 
         let naturalSize = try await videoTrack.load(.naturalSize)
         let transform = try await videoTrack.load(.preferredTransform)
         let transformed = naturalSize.applying(transform)
-        // Encoders require even dimensions.
-        let width = max(Int(abs(transformed.width)) & ~1, 2)
-        let height = max(Int(abs(transformed.height)) & ~1, 2)
+        let sourceSize = CGSize(width: abs(transformed.width), height: abs(transformed.height))
+        let (width, height) = encoding.outputSize(for: sourceSize)
+        // The source size rounded down to even, which is what the frames are
+        // written at when nothing is scaled.
+        let scales = width != max(Int(sourceSize.width) & ~1, 2) || height != max(Int(sourceSize.height) & ~1, 2)
 
+        var compression: [String: Any] = [
+            AVVideoAverageBitRateKey: width * height * encoding.quality.bitRateFactor,
+            AVVideoMaxKeyFrameIntervalKey: 30,
+        ]
+        if encoding.codec == .h264 {
+            compression[AVVideoProfileLevelKey] = AVVideoProfileLevelH264HighAutoLevel
+        }
+        if let frameRate = encoding.frameRate {
+            compression[AVVideoExpectedSourceFrameRateKey] = frameRate
+        }
         let videoInput = AVAssetWriterInput(mediaType: .video, outputSettings: [
-            AVVideoCodecKey: AVVideoCodecType.hevc,
+            AVVideoCodecKey: encoding.codec == .h264 ? AVVideoCodecType.h264 : AVVideoCodecType.hevc,
             AVVideoWidthKey: width,
             AVVideoHeightKey: height,
-            AVVideoCompressionPropertiesKey: [
-                AVVideoAverageBitRateKey: width * height * 4,
-                AVVideoMaxKeyFrameIntervalKey: 30,
-            ] as [String: Any],
+            AVVideoCompressionPropertiesKey: compression,
         ])
         videoInput.expectsMediaDataInRealTime = false
         guard writer.canAdd(videoInput) else { throw TrimExportError.writerSetupFailed(nil) }
@@ -177,6 +198,8 @@ enum VideoTrimExporter {
             input: videoInput,
             adaptor: adaptor,
             range: clipped,
+            outputSize: scales ? (width, height) : nil,
+            frameRate: encoding.frameRate,
             progress: progress,
             cancellation: cancellation
         )
@@ -267,15 +290,31 @@ enum VideoTrimExporter {
         private let input: AVAssetWriterInput
         private let adaptor: AVAssetWriterInputPixelBufferAdaptor
         private let range: CMTimeRange
+        private let outputSize: (width: Int, height: Int)?
+        private let frameDuration: CMTime?
         private let progress: (@Sendable (Double) -> Void)?
         private let cancellation: CancellationFlag
         private var lastReportedPercent = -1
+        private var transferSession: VTPixelTransferSession?
 
+        // Constant frame rate state. `current` is the newest source frame at or
+        // before `nextFrameTime`, and `lookahead` is the first one after it.
+        private var nextFrameTime: CMTime
+        private var current: CVPixelBuffer?
+        private var lookahead: (buffer: CVPixelBuffer, time: CMTime)?
+        private var sourceFinished = false
+
+        /// - Parameters:
+        ///   - outputSize: the size to scale every frame to, or nil to keep it.
+        ///   - frameRate: frames per second to resample to, or nil to keep the
+        ///     source frame timing.
         init(
             output: AVAssetReaderOutput,
             input: AVAssetWriterInput,
             adaptor: AVAssetWriterInputPixelBufferAdaptor,
             range: CMTimeRange,
+            outputSize: (width: Int, height: Int)?,
+            frameRate: Int?,
             progress: (@Sendable (Double) -> Void)?,
             cancellation: CancellationFlag
         ) {
@@ -283,35 +322,111 @@ enum VideoTrimExporter {
             self.input = input
             self.adaptor = adaptor
             self.range = range
+            self.outputSize = outputSize
+            self.frameDuration = frameRate.map { CMTime(value: 1, timescale: CMTimeScale($0)) }
+            self.nextFrameTime = range.start
             self.progress = progress
             self.cancellation = cancellation
+
+            if outputSize != nil {
+                var session: VTPixelTransferSession?
+                VTPixelTransferSessionCreate(allocator: nil, pixelTransferSessionOut: &session)
+                if let session {
+                    // Averaging keeps small screen text readable when it shrinks.
+                    VTSessionSetProperty(
+                        session,
+                        key: kVTPixelTransferPropertyKey_DownsamplingMode,
+                        value: kVTDownsamplingMode_Average
+                    )
+                }
+                transferSession = session
+            }
+        }
+
+        deinit {
+            if let transferSession {
+                VTPixelTransferSessionInvalidate(transferSession)
+            }
         }
 
         func run() async {
             await withCheckedContinuation { continuation in
                 input.requestMediaDataWhenReady(on: DispatchQueue(label: "app.screensnipe.trim.video")) { [self] in
                     while input.isReadyForMoreMediaData {
-                        if cancellation.isCancelled {
+                        if cancellation.isCancelled || !appendNextFrame() {
                             input.markAsFinished()
                             continuation.resume()
                             return
                         }
-                        guard let sampleBuffer = output.copyNextSampleBuffer() else {
-                            input.markAsFinished()
-                            continuation.resume()
-                            return
-                        }
-                        let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-                        // The reader's timeRange should already have discarded
-                        // these, but appending before the session start fails the
-                        // whole writer, so never rely on that alone.
-                        guard pts >= range.start,
-                              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
-                        adaptor.append(pixelBuffer, withPresentationTime: pts)
-                        report(pts)
                     }
                 }
             }
+        }
+
+        /// Appends one frame, returning false once there are none left.
+        private func appendNextFrame() -> Bool {
+            if let frameDuration {
+                return appendNextConstantRateFrame(frameDuration)
+            }
+            while true {
+                guard let sampleBuffer = output.copyNextSampleBuffer() else { return false }
+                let pts = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
+                // The reader's timeRange should already have discarded these,
+                // but appending before the session start fails the whole
+                // writer, so never rely on that alone.
+                guard pts >= range.start,
+                      let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
+                append(pixelBuffer, at: pts)
+                return true
+            }
+        }
+
+        /// Writes a frame at every tick of the target frame rate, each showing
+        /// the newest source frame at or before that tick. Recordings skip
+        /// frames while the screen is still, so this repeats the last frame
+        /// through those gaps and up to the end of the range, and drops frames
+        /// when the target rate is lower than the source.
+        private func appendNextConstantRateFrame(_ frameDuration: CMTime) -> Bool {
+            guard nextFrameTime < range.end else { return false }
+            while true {
+                if let next = lookahead, next.time <= nextFrameTime {
+                    current = next.buffer
+                    lookahead = nil
+                }
+                if lookahead != nil || sourceFinished { break }
+                guard let sampleBuffer = output.copyNextSampleBuffer() else {
+                    sourceFinished = true
+                    break
+                }
+                guard let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { continue }
+                lookahead = (pixelBuffer, CMSampleBufferGetPresentationTimeStamp(sampleBuffer))
+            }
+            // When the first source frame comes after the range start, it is
+            // shown from the start instead of leaving the opening frames empty.
+            guard let frame = current ?? lookahead?.buffer else { return false }
+            append(frame, at: nextFrameTime)
+            nextFrameTime = CMTimeAdd(nextFrameTime, frameDuration)
+            return true
+        }
+
+        private func append(_ pixelBuffer: CVPixelBuffer, at time: CMTime) {
+            guard let frame = scaled(pixelBuffer) else { return }
+            adaptor.append(frame, withPresentationTime: time)
+            report(time)
+        }
+
+        private func scaled(_ pixelBuffer: CVPixelBuffer) -> CVPixelBuffer? {
+            guard let outputSize, let transferSession else { return pixelBuffer }
+            var destination: CVPixelBuffer?
+            if let pool = adaptor.pixelBufferPool {
+                CVPixelBufferPoolCreatePixelBuffer(nil, pool, &destination)
+            } else {
+                CVPixelBufferCreate(nil, outputSize.width, outputSize.height, kCVPixelFormatType_32BGRA, nil, &destination)
+            }
+            guard let destination,
+                  VTPixelTransferSessionTransferImage(transferSession, from: pixelBuffer, to: destination) == noErr
+            else { return nil }
+            return destination
         }
 
         private func report(_ pts: CMTime) {

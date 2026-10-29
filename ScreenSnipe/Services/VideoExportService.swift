@@ -1,7 +1,6 @@
 import AppKit
 import AVFoundation
 import ObjectiveC
-import UniformTypeIdentifiers
 
 @MainActor
 enum VideoExportService {
@@ -16,9 +15,16 @@ enum VideoExportService {
         Task {
             let audioTracks = try? await asset.loadTracks(withMediaType: .audio)
             let audioTrackCount = audioTracks?.count ?? 0
+            let sourceSize = await pixelSize(of: asset)
 
             await MainActor.run {
-                showSavePanel(videoURL: videoURL, trim: trim, audioTrackCount: audioTrackCount, defaultName: name)
+                showSavePanel(
+                    videoURL: videoURL,
+                    trim: trim,
+                    audioTrackCount: audioTrackCount,
+                    sourceSize: sourceSize,
+                    defaultName: name
+                )
             }
         }
     }
@@ -59,73 +65,75 @@ enum VideoExportService {
         picker.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
 
-    private static func showSavePanel(videoURL: URL, trim: CMTimeRange?, audioTrackCount: Int, defaultName: String? = nil) {
+    private nonisolated static func pixelSize(of asset: AVURLAsset) async -> CGSize? {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first,
+              let (naturalSize, transform) = try? await track.load(.naturalSize, .preferredTransform)
+        else { return nil }
+        let size = naturalSize.applying(transform)
+        return CGSize(width: abs(size.width), height: abs(size.height))
+    }
+
+    private static func showSavePanel(
+        videoURL: URL,
+        trim: CMTimeRange?,
+        audioTrackCount: Int,
+        sourceSize: CGSize?,
+        defaultName: String? = nil
+    ) {
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.mpeg4Movie]
         let baseName = defaultName ?? "Recording"
         panel.nameFieldStringValue = "\(baseName).mp4"
         panel.canCreateDirectories = true
 
-        // Accessory view with audio track option
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 320, height: 70))
-
-        let label = NSTextField(labelWithString: "Audio tracks:")
-        label.frame = NSRect(x: 0, y: 44, width: 90, height: 20)
-        container.addSubview(label)
-
-        let popup = NSPopUpButton(frame: NSRect(x: 94, y: 40, width: 220, height: 26), pullsDown: false)
-        popup.addItems(withTitles: ["Merge into one track", "Independent tracks"])
-        popup.selectItem(at: 0)
-        if audioTrackCount <= 1 {
-            popup.isEnabled = false
-        }
-        container.addSubview(popup)
-
-        let hint = NSTextField(wrappingLabelWithString: AudioTrackHintHandler.mergeHint)
-        hint.frame = NSRect(x: 0, y: 8, width: 320, height: 28)
-        hint.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-        hint.textColor = .secondaryLabelColor
-        container.addSubview(hint)
-
-        let hintHandler = AudioTrackHintHandler(hint: hint)
-        popup.target = hintHandler
-        popup.action = #selector(AudioTrackHintHandler.popupChanged(_:))
-        objc_setAssociatedObject(popup, "hintHandler", hintHandler, .OBJC_ASSOCIATION_RETAIN)
-
-        panel.accessoryView = container
+        let accessory = VideoExportAccessory(panel: panel, audioTrackCount: audioTrackCount, sourceSize: sourceSize)
 
         guard panel.runModal() == .OK, let destinationURL = panel.url else { return }
 
-        let mergeAudio = popup.isEnabled && popup.indexOfSelectedItem == 0
+        let choice = accessory.commit()
+        let audioMode: VideoTrimExporter.AudioMode = choice.mergeAudio ? .mergeToSingleTrack : .preserveTracks
 
-        if let trim {
-            // This is what stops "Independent tracks" being a plain file copy
-            // once a trim exists: it becomes a real export that still gives each
-            // source audio track its own track in the output.
-            exportTrimmed(
+        if let encoding = choice.encoding {
+            // Google Workspace and Custom always convert, trimmed or not.
+            exportEncoded(
                 sourceURL: videoURL,
                 destinationURL: destinationURL,
                 range: trim,
-                audioMode: mergeAudio ? .mergeToSingleTrack : .preserveTracks
+                audioMode: audioMode,
+                encoding: encoding,
+                message: trim == nil ? "Converting video…" : "Exporting trimmed video…"
             )
-        } else if mergeAudio {
+        } else if trim != nil {
+            // This is what stops "Independent tracks" being a plain file copy
+            // once a trim exists: it becomes a real export that still gives each
+            // source audio track its own track in the output.
+            exportEncoded(
+                sourceURL: videoURL,
+                destinationURL: destinationURL,
+                range: trim,
+                audioMode: audioMode,
+                encoding: .original,
+                message: "Exporting trimmed video…"
+            )
+        } else if choice.mergeAudio {
             exportWithMergedAudio(sourceURL: videoURL, destinationURL: destinationURL)
         } else {
             copyVideo(sourceURL: videoURL, destinationURL: destinationURL)
         }
     }
 
-    private static func exportTrimmed(
+    private static func exportEncoded(
         sourceURL: URL,
         destinationURL: URL,
-        range: CMTimeRange,
-        audioMode: VideoTrimExporter.AudioMode
+        range: CMTimeRange?,
+        audioMode: VideoTrimExporter.AudioMode,
+        encoding: VideoEncoding,
+        message: String
     ) {
         let window = NSApp.keyWindow
         var task: Task<Void, Never>?
         let sheet = progressSheet(
             title: "Exporting Video",
-            message: "Exporting trimmed video…",
+            message: message,
             determinate: true,
             onCancel: { task?.cancel() }
         )
@@ -139,6 +147,7 @@ enum VideoExportService {
                     destinationURL: destinationURL,
                     range: range,
                     audioMode: audioMode,
+                    encoding: encoding,
                     progress: { fraction in
                         Task { @MainActor in sheet.setProgress(fraction) }
                     }
@@ -184,8 +193,8 @@ enum VideoExportService {
 
     /// Shared by every long-running video export.
     ///
-    /// Determinate with a Cancel button for trimmed exports, which re-encode and
-    /// can take a while; an indeterminate spinner with no button for the
+    /// Determinate with a Cancel button for trimmed and converted exports, which
+    /// re-encode and can take a while; an indeterminate spinner with no button for the
     /// audio-merge path, which is what it has always shown.
     private static func progressSheet(
         title: String,
@@ -279,24 +288,6 @@ private final class ProgressSheetCanceller: NSObject {
 
     @objc func cancel() {
         action()
-    }
-}
-
-@MainActor
-private final class AudioTrackHintHandler: NSObject {
-    static let mergeHint = "Combines all audio into one track for wider player compatibility."
-    static let independentHint = "Keeps tracks separate so you can remove system sounds or voiceover when editing."
-
-    private let hint: NSTextField
-
-    init(hint: NSTextField) {
-        self.hint = hint
-    }
-
-    @objc func popupChanged(_ sender: NSPopUpButton) {
-        hint.stringValue = sender.indexOfSelectedItem == 0
-            ? Self.mergeHint
-            : Self.independentHint
     }
 }
 

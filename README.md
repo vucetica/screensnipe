@@ -38,6 +38,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 
 ### Export
 - **Save**: Export flattened image as PNG/JPEG, or a whole series as a single multi-page TIFF, PDF, or animated GIF (with a per-frame delay in seconds and a loop count, where 0 loops forever). Recordings export as MP4, cut to the trim range when one is set, with the option to merge audio into one track or keep system audio and microphone separate
+- **Video export presets**: The video save panel has a Preset popup. **Google Workspace** is the default: it converts the recording to H.264 at up to 1080p with a constant 30 fps and one audio track, and puts the playback index at the front of the file, so Google Drive, Meet, and Vids can process it quickly. **Original Quality** saves the recording as it was captured. **Custom** lets you pick the resolution (Original, 2160p, 1440p, 1080p, 720p, 480p), the codec (H.264 or HEVC), the quality, and the frame rate (the original variable rate, 30, 24, or 15 fps). The preset and custom values are remembered
 - **Copy to clipboard**: One-click copy with toast confirmation
 - **Share**: System share sheet integration; a trimmed recording is exported to the selected range first
 - **Copy iCloud Link**: Publish a capture as a public iCloud download link anyone can open in a browser; revoke via Stop Sharing (requires iCloud provisioning, see [developer/ICLOUD-SHARING.md](developer/ICLOUD-SHARING.md))

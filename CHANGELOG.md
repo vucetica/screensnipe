@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- The video save panel has a **Preset** popup. **Google Workspace** is the new default. It converts the recording to H.264 at up to 1080p, with a constant 30 fps frame rate and all audio merged into one track, and places the playback index at the front of the file. Google Drive, Meet, and Vids process files like this much faster than a full-size HEVC recording. **Original Quality** keeps the previous behavior, which saves the recording as it was captured. **Custom** lets you choose the resolution, codec (H.264 or HEVC), quality, and frame rate yourself. The preset you used and your custom values are remembered.
+
+### Changed
+- Trimmed exports, shared trims, and iCloud links of trimmed recordings now put the playback index at the front of the file, so web players can start playing sooner.
+
 ## [1.14.1] - 2026-10-21
 
 ### Changed
