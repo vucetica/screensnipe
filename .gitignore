@@ -16,3 +16,6 @@ Package.resolved
 *.swp
 *~
 
+
+# Hallmark design review records (screenshots, before/after snapshots)
+.hallmark/
