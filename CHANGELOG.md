@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 - The window picker (used by Capture Window, Record Window, Series Window, and Scrolling Window) could open behind other apps' windows. While it waited there out of sight, every other capture was silently ignored. The picker now always stays above other windows. If you start another capture while it is open, the picker comes to the front so you can see it. Closing the picker with its close button now cancels the capture, the same as pressing Cancel.
+- When Screen Snipe needed you to choose the library folder again, the folder dialog could open behind other apps' windows. The app waited for an answer you could not see, so no capture, recording, or series would start. The dialog now opens in front of other windows.
 
 ## [1.15.0] - 2026-10-29
 

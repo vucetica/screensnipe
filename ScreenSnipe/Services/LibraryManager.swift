@@ -91,6 +91,11 @@ final class LibraryManager: ObservableObject {
         panel.prompt = "Choose"
         panel.message = "Select a folder for the Screen Snipe library"
         panel.nameFieldStringValue = "Screen Snipe"
+        // Captures start from the menu bar while another app is in front.
+        // runModal blocks the app until the panel is answered, so a panel
+        // hidden behind other windows made every capture seem to do nothing.
+        panel.level = .floating
+        NSApp.activate()
 
         guard panel.runModal() == .OK, let url = panel.url else { return nil }
         libraryURL = url
