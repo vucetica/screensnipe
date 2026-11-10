@@ -10,6 +10,7 @@ Free on the [Mac App Store](https://apps.apple.com/app/screen-snipe/id6759236400
 
 ### Capture
 - **Screenshots**: Full screen, region selection, or window picker
+- **Scrolling capture**: Pick a region or a window, then scroll down through a long page by hand. Screen Snipe joins what scrolls into view into one tall screenshot. Sticky headers and footers appear only once, and a sidebar that stays still does not throw off the matching. The capture never scrolls for you, so it needs no Accessibility permission. Press Done in the floating panel, or the same shortcut again (⌃⇧S for a region, ⌘⌃⇧S for a window), to save it as a normal screenshot you can annotate
 - **Screen recording**: Full screen, region, or window with pause/resume, 3-2-1 countdown, and recording border indicator
 - **Series capture**: Pick a region, window, or full screen once, then snap as many stills of that target as you need from a floating control panel or with a shortcut (⌃⇧Space). All frames land in a single library entry
 - **Audio recording**: System audio capture and microphone input with device selection
@@ -85,6 +86,7 @@ ScreenSnipe runs as a menu bar app. Click the camera icon in the menu bar to acc
 - **Capture > Region** (Cmd+Shift+5) — Select a screen region to capture
 - **Capture > Full Screen** (Cmd+Shift+6) — Capture the entire screen
 - **Capture > Window** (Cmd+Shift+7) — Pick a window to capture
+- **Capture > Scrolling Region / Scrolling Window** (Ctrl+Shift+S / Cmd+Ctrl+Shift+S): Scroll through a long page and save it as one tall screenshot. Press the same shortcut again to finish
 - **Record > Full Screen** (Cmd+Shift+8) — Record the full screen
 - **Record > Region** — Record a selected screen region
 - **Record > Window** — Record a specific window

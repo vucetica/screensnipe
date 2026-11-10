@@ -68,6 +68,7 @@ The `-destination 'platform=macOS'` flag is required — without it xcodebuild t
 - **AnnotationStore**: `@MainActor ObservableObject` with undo/redo via array snapshots
 - **CodableAnnotation**: Wrappers (`CodableColor`, `CodablePoint`, `CodableRect`) + envelope-based serialization
 - **RecordingBorderWindow**: Transparent click-through NSPanel drawing a red border around recorded region/window during recording
+- **Scrolling capture**: `CaptureCoordinator` runs a capture loop (about 12 fps) while the user scrolls by hand, feeding frames to `ScrollStitchEngine` (an actor wrapping `ScrollStitcher`). No synthetic scroll events are posted, so no Accessibility permission. The stitcher hashes each pixel row in 8 vertical bands, finds the sticky rows at the top and bottom, drops bands that did not move (sidebars), votes on the scroll distance from matching band hashes, then verifies the top candidates. Frames always match against the last frame that was added (the anchor), so scrolling up or too fast yields `.noMatch` until the view overlaps the anchor again. Test the algorithm with synthetic pages (`ScreenSnipeTests/ScrollStitcherTests.swift`)
 - **Preferences**: Tabbed PreferencesView (Shortcuts, Library) with configurable keyboard shortcuts and library location
 
 ## Key Patterns
