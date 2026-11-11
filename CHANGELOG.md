@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.16.0] - 2026-11-10
+
+### Added
+- **Scrolling capture.** Choose **Capture > Scrolling Region** or **Capture > Scrolling Window**, then scroll down through a long page at your own pace. Screen Snipe watches the area while you scroll and adds each newly visible part to the bottom of one tall image. A header or footer that stays pinned in place appears only once in the result. A floating panel shows how tall the image is so far. When you are done, press **Done** or the same shortcut again (Ctrl-Shift-S for a region, Cmd-Ctrl-Shift-S for a window), and the image is saved as a normal screenshot that you can annotate, crop, and export. If you scroll up or scroll too fast, the panel asks you to scroll back up a little so the capture can find its place again. Screen Snipe never scrolls the page itself, so scrolling capture needs only the Screen Recording permission and no Accessibility permission. Images are limited to 30,000 pixels tall.
+
+### Fixed
+- The window picker (used by Capture Window, Record Window, Series Window, and Scrolling Window) could open behind other apps' windows. While it waited there out of sight, every other capture was silently ignored. The picker now always stays above other windows. If you start another capture while it is open, the picker comes to the front so you can see it. Closing the picker with its close button now cancels the capture, the same as pressing Cancel.
+- When Screen Snipe needed you to choose the library folder again, the folder dialog could open behind other apps' windows. The app waited for an answer you could not see, so no capture, recording, or series would start. The dialog now opens in front of other windows.
+
 ## [1.15.0] - 2026-10-29
 
 ### Added
@@ -142,7 +151,8 @@ Initial public release on the Mac App Store and GitHub.
 - Zoom controls (Cmd+0/1/+/-)
 - Menu bar app with full dark mode and macOS 26 liquid glass sidebar
 
-[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.15.0...HEAD
+[Unreleased]: https://github.com/vucetica/screensnipe/compare/v1.16.0...HEAD
+[1.16.0]: https://github.com/vucetica/screensnipe/compare/v1.15.0...v1.16.0
 [1.15.0]: https://github.com/vucetica/screensnipe/compare/v1.14.1...v1.15.0
 [1.14.1]: https://github.com/vucetica/screensnipe/compare/v1.14.0...v1.14.1
 [1.14.0]: https://github.com/vucetica/screensnipe/compare/v1.13.1...v1.14.0

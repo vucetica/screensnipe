@@ -155,6 +155,14 @@ final class ScreenCaptureService {
     /// visibility and size checks here are what stop an empty frame from being
     /// appended with no error.
     func captureWindow(id windowID: CGWindowID) throws -> NSImage {
+        let (cgImage, bounds) = try captureWindowCGImage(id: windowID)
+        return makeStableImage(from: cgImage, size: NSSize(width: bounds.width, height: bounds.height))
+    }
+
+    /// The raw image behind `captureWindow(id:)`, plus the window's current
+    /// bounds in points. Scrolling capture uses this directly: it works on
+    /// pixels and only needs a point size once, when the result is built.
+    func captureWindowCGImage(id windowID: CGWindowID) throws -> (CGImage, CGRect) {
         guard let bounds = WindowInfo.bounds(for: windowID) else {
             throw CaptureError.windowNotFound
         }
@@ -169,7 +177,7 @@ final class ScreenCaptureService {
         ), cgImage.width > 1, cgImage.height > 1 else {
             throw CaptureError.captureFailed("The window produced no image.")
         }
-        return makeStableImage(from: cgImage, size: NSSize(width: bounds.width, height: bounds.height))
+        return (cgImage, bounds)
     }
 
     // MARK: - Helpers

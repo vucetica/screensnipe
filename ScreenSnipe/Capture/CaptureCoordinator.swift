@@ -14,6 +14,7 @@ final class CaptureCoordinator: ObservableObject {
         case editing(NSImage)
         case recording
         case seriesActive
+        case scrollingActive
     }
 
     @Published private(set) var state: State = .idle
@@ -21,6 +22,7 @@ final class CaptureCoordinator: ObservableObject {
     @Published private(set) var isCountingDown = false
     @Published private(set) var isSeriesActive = false
     @Published private(set) var seriesFrameCount = 0
+    @Published private(set) var isScrollingActive = false
 
     /// True while a capture or recording flow is actively in progress and a new one
     /// must not be started. `.editing` is intentionally excluded: it's the post-capture
@@ -28,17 +30,31 @@ final class CaptureCoordinator: ObservableObject {
     var isBusy: Bool {
         if isCountingDown { return true }
         switch state {
-        case .selectingRegion, .selectingWindow, .capturing, .recording, .seriesActive:
+        case .selectingRegion, .selectingWindow, .capturing, .recording, .seriesActive, .scrollingActive:
             return true
         case .idle, .editing:
             return false
         }
     }
 
+    /// Use in place of `guard !isBusy` at the start of every capture flow.
+    /// When the flow that is blocking is a window picker, the picker is
+    /// brought to the front, so an ignored click shows the user what the app
+    /// is waiting for instead of doing nothing at all.
+    private func rejectIfBusy() -> Bool {
+        guard isBusy else { return false }
+        if let picker = windowPickerWindow {
+            picker.orderFrontRegardless()
+            picker.makeKey()
+        }
+        return true
+    }
+
     private let captureService = ScreenCaptureService()
     let videoService = VideoRecordingService()
     private var regionSelectionWindow: RegionSelectionWindow?
     private var windowPickerWindow: NSWindow?
+    private var windowPickerCloseObserver: NSObjectProtocol?
     private var countdownOverlay: CountdownOverlay?
     private var recordingBorderWindow: RecordingBorderWindow?
     private var frozenScreenshot: CGImage?
@@ -55,6 +71,10 @@ final class CaptureCoordinator: ObservableObject {
     /// Guards against re-entrancy from hotkey autorepeat. Deliberately separate
     /// from `state`, which must stay `.seriesActive` for the whole session.
     private var isSnapping = false
+
+    private var scrollingSession: ScrollingSession?
+    private var scrollingHUD: ScrollingCaptureHUDWindow?
+    private var scrollingBorder: RecordingBorderWindow?
 
     init() {
         writerErrorObserver = videoService.$writerError
@@ -73,7 +93,7 @@ final class CaptureCoordinator: ObservableObject {
     // MARK: - Public API
 
     func startCapture(mode: CaptureMode) {
-        guard !isBusy else { return }
+        guard !rejectIfBusy() else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -222,38 +242,8 @@ final class CaptureCoordinator: ObservableObject {
     // MARK: - Window
 
     func showWindowPicker() async {
-        state = .selectingWindow
-        LibraryWindow.hideAll()
-        do {
-            let windows = try await captureService.availableWindows()
-            let pickerView = WindowPickerView(windows: windows) { [weak self] window in
-                guard let self else { return }
-                self.windowPickerWindow?.close()
-                self.windowPickerWindow = nil
-                self.captureWindow(window)
-            } onCancel: { [weak self] in
-                self?.windowPickerWindow?.close()
-                self?.windowPickerWindow = nil
-                self?.state = .idle
-                LibraryWindow.showAll()
-            }
-
-            let window = NSWindow(
-                contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
-                styleMask: [.titled, .closable],
-                backing: .buffered,
-                defer: false
-            )
-            window.isReleasedWhenClosed = false
-            window.title = "Select Window"
-            window.contentView = NSHostingView(rootView: pickerView)
-            window.center()
-            window.makeKeyAndOrderFront(nil)
-            NSApp.activate()
-            windowPickerWindow = window
-        } catch {
-            state = .idle
-            showError(error)
+        await showSessionWindowPicker(title: "Select Window") { [weak self] window in
+            self?.captureWindow(window)
         }
     }
 
@@ -272,7 +262,7 @@ final class CaptureCoordinator: ObservableObject {
     // MARK: - Video Recording
 
     func startFullScreenRecording() {
-        guard !isBusy else { return }
+        guard !rejectIfBusy() else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -281,7 +271,7 @@ final class CaptureCoordinator: ObservableObject {
     }
 
     func startRegionRecording() {
-        guard !isBusy else { return }
+        guard !rejectIfBusy() else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -312,43 +302,12 @@ final class CaptureCoordinator: ObservableObject {
     }
 
     func startWindowRecording() {
-        guard !isBusy else { return }
+        guard !rejectIfBusy() else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
-            state = .selectingWindow
-            LibraryWindow.hideAll()
-            do {
-                let windows = try await captureService.availableWindows()
-                let pickerView = WindowPickerView(windows: windows) { [weak self] scWindow in
-                    guard let self else { return }
-                    self.windowPickerWindow?.close()
-                    self.windowPickerWindow = nil
-                    self.beginRecordingWithCountdown(target: .window(scWindow))
-                } onCancel: { [weak self] in
-                    self?.windowPickerWindow?.close()
-                    self?.windowPickerWindow = nil
-                    self?.state = .idle
-                    LibraryWindow.showAll()
-                }
-
-                let window = NSWindow(
-                    contentRect: NSRect(x: 0, y: 0, width: 400, height: 400),
-                    styleMask: [.titled, .closable],
-                    backing: .buffered,
-                    defer: false
-                )
-                window.isReleasedWhenClosed = false
-                window.title = "Select Window to Record"
-                window.contentView = NSHostingView(rootView: pickerView)
-                window.center()
-                window.makeKeyAndOrderFront(nil)
-                NSApp.activate()
-                windowPickerWindow = window
-            } catch {
-                state = .idle
-                LibraryWindow.showAll()
-                showError(error)
+            await showSessionWindowPicker(title: "Select Window to Record") { [weak self] scWindow in
+                self?.beginRecordingWithCountdown(target: .window(scWindow))
             }
         }
     }
@@ -541,7 +500,7 @@ extension CaptureCoordinator {
     // MARK: Start
 
     func startSeries(mode: CaptureMode) {
-        guard !isBusy else { return }
+        guard !rejectIfBusy() else { return }
         Task {
             guard await LibraryManager.shared.ensureLibraryLocation() else { return }
             guard await ensureScreenCaptureAccess() else { return }
@@ -549,14 +508,27 @@ extension CaptureCoordinator {
             case .fullScreen:
                 beginSeries(target: .fullScreen(displayID: CGMainDisplayID()))
             case .region:
-                beginSeriesRegionSelection()
+                beginSessionRegionSelection { [weak self] region, displayID in
+                    self?.beginSeries(target: .region(region, displayID: displayID))
+                }
             case .window:
-                await showSeriesWindowPicker()
+                await showSessionWindowPicker(title: "Select Window for Series") { [weak self] scWindow in
+                    self?.beginSeries(target: .window(
+                        id: CGWindowID(scWindow.windowID),
+                        appName: scWindow.owningApplication?.applicationName,
+                        title: scWindow.title
+                    ))
+                }
             }
         }
     }
 
-    private func beginSeriesRegionSelection() {
+    /// Region picker shared by series and scrolling capture. `onSelected`
+    /// receives the rect relative to the display it was drawn on (flipped,
+    /// in points, exactly as RegionSelectionView emits) and that display's ID.
+    private func beginSessionRegionSelection(
+        onSelected: @escaping (CGRect, CGDirectDisplayID) -> Void
+    ) {
         state = .selectingRegion
         do {
             // Pin the display the overlay is drawn on: the region rect is
@@ -571,7 +543,7 @@ extension CaptureCoordinator {
                 guard let self else { return }
                 self.regionSelectionWindow?.close()
                 self.regionSelectionWindow = nil
-                self.beginSeries(target: .region(region, displayID: regionDisplayID))
+                onSelected(region, regionDisplayID)
             } onCancel: { [weak self] in
                 self?.cancel()
             }
@@ -586,25 +558,25 @@ extension CaptureCoordinator {
         }
     }
 
-    private func showSeriesWindowPicker() async {
+    /// Window picker shared by every window-based flow: screenshot, recording,
+    /// series, and scrolling capture.
+    ///
+    /// While the picker is open the coordinator is busy and ignores every
+    /// other capture request, so the picker must never end up somewhere the
+    /// user cannot see or dismiss it.
+    func showSessionWindowPicker(
+        title: String,
+        onPicked: @escaping (SCWindow) -> Void
+    ) async {
         state = .selectingWindow
         LibraryWindow.hideAll()
         do {
             let windows = try await captureService.availableWindows()
             let pickerView = WindowPickerView(windows: windows) { [weak self] scWindow in
-                guard let self else { return }
-                self.windowPickerWindow?.close()
-                self.windowPickerWindow = nil
-                self.beginSeries(target: .window(
-                    id: CGWindowID(scWindow.windowID),
-                    appName: scWindow.owningApplication?.applicationName,
-                    title: scWindow.title
-                ))
+                self?.dismissWindowPicker()
+                onPicked(scWindow)
             } onCancel: { [weak self] in
-                self?.windowPickerWindow?.close()
-                self?.windowPickerWindow = nil
-                self?.state = .idle
-                LibraryWindow.showAll()
+                self?.cancelWindowPicker()
             }
 
             let window = NSWindow(
@@ -614,17 +586,61 @@ extension CaptureCoordinator {
                 defer: false
             )
             window.isReleasedWhenClosed = false
-            window.title = "Select Window for Series"
+            window.title = title
             window.contentView = NSHostingView(rootView: pickerView)
+            // A menu bar app is not active when one of its menu items is
+            // chosen, and since macOS 14 NSApp.activate() is only a request
+            // the system may turn down. At normal level the picker then opened
+            // behind the frontmost app, and every capture waited on a window
+            // nobody could see. Floating keeps it above other apps' windows.
+            window.level = .floating
             window.center()
+            windowPickerWindow = window
+            // The title bar close button must behave like Cancel. Without this
+            // the window closed but the coordinator stayed in .selectingWindow.
+            windowPickerCloseObserver = NotificationCenter.default.addObserver(
+                forName: NSWindow.willCloseNotification,
+                object: window,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.windowPickerClosedByUser() }
+            }
             window.makeKeyAndOrderFront(nil)
             NSApp.activate()
-            windowPickerWindow = window
         } catch {
             state = .idle
             LibraryWindow.showAll()
             showError(error)
         }
+    }
+
+    /// Closes the picker after a choice was made. The close observer is
+    /// removed first so this close is not mistaken for a cancel.
+    private func dismissWindowPicker() {
+        if let observer = windowPickerCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windowPickerCloseObserver = nil
+        windowPickerWindow?.close()
+        windowPickerWindow = nil
+    }
+
+    private func cancelWindowPicker() {
+        dismissWindowPicker()
+        state = .idle
+        LibraryWindow.showAll()
+    }
+
+    /// The user closed the picker with the title bar button.
+    private func windowPickerClosedByUser() {
+        guard windowPickerWindow != nil else { return }
+        if let observer = windowPickerCloseObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        windowPickerCloseObserver = nil
+        windowPickerWindow = nil
+        state = .idle
+        LibraryWindow.showAll()
     }
 
     private func beginSeries(target: SeriesSession.Target) {
@@ -866,6 +882,263 @@ extension CaptureCoordinator {
         seriesHUD = nil
         seriesBorder?.hide()
         seriesBorder = nil
+    }
+}
+
+// MARK: - Scrolling Capture
+
+extension CaptureCoordinator {
+
+    /// Live state of a scrolling capture.
+    ///
+    /// The user scrolls the target by hand while frames are grabbed in a loop
+    /// and fed to `ScrollStitchEngine`. Nothing is sent to the target app, so
+    /// no Accessibility permission is needed: only Screen Recording, which
+    /// every capture already requires.
+    struct ScrollingSession {
+        enum Target {
+            /// Global CG rect in points (Y-down from the primary display's
+            /// top-left corner), so it works on any display.
+            case region(CGRect)
+            case window(CGWindowID)
+        }
+
+        let target: Target
+        /// The shortcut that started the session. Pressing it again finishes.
+        let startAction: ShortcutAction
+        let engine = ScrollStitchEngine()
+        /// Pixels per point of the captured frames, read from the first frame.
+        var pixelsPerPoint: CGFloat = 0
+        /// Frames in a row that could not be lined up with the image.
+        var unmatchedFrames = 0
+        var loop: Task<Void, Never>?
+    }
+
+    /// Pause between frames. Each pass also waits for the previous frame to
+    /// be stitched, so the real rate adapts to how fast this Mac is.
+    private static let scrollingFrameInterval: Duration = .milliseconds(70)
+
+    // MARK: Start
+
+    /// Starts a scrolling capture, or finishes the running one. The start
+    /// shortcut doubles as the finish shortcut, so the user can keep one hand
+    /// on the trackpad and the other on the keyboard.
+    func startScrollingCapture(mode: CaptureMode) {
+        if case .scrollingActive = state {
+            finishScrollingCapture()
+            return
+        }
+        guard !rejectIfBusy() else { return }
+        let startAction: ShortcutAction = mode == .window ? .scrollingWindow : .scrollingRegion
+        Task {
+            guard await LibraryManager.shared.ensureLibraryLocation() else { return }
+            guard await ensureScreenCaptureAccess() else { return }
+            switch mode {
+            case .region:
+                beginSessionRegionSelection { [weak self] region, displayID in
+                    let display = CGDisplayBounds(displayID)
+                    let global = region.offsetBy(dx: display.origin.x, dy: display.origin.y)
+                    self?.beginScrollingCapture(target: .region(global), startAction: startAction)
+                }
+            case .fullScreen:
+                // Not offered in the menus, but handled: the menu bar and Dock
+                // are treated like a sticky header and footer.
+                let display = CGDisplayBounds(Self.displayID(for: NSScreen.main))
+                beginScrollingCapture(target: .region(display), startAction: startAction)
+            case .window:
+                await showSessionWindowPicker(title: "Select Window to Scroll") { [weak self] scWindow in
+                    self?.beginScrollingCapture(
+                        target: .window(CGWindowID(scWindow.windowID)),
+                        startAction: startAction
+                    )
+                }
+            }
+        }
+    }
+
+    private func beginScrollingCapture(target: ScrollingSession.Target, startAction: ShortcutAction) {
+        LibraryWindow.hideAll()
+        scrollingSession = ScrollingSession(target: target, startAction: startAction)
+        state = .scrollingActive
+        isScrollingActive = true
+
+        showScrollingBorder(for: target)
+        presentScrollingHUD()
+        scrollingSession?.loop = Task { [weak self] in
+            await self?.runScrollingCaptureLoop()
+        }
+    }
+
+    private func presentScrollingHUD() {
+        let hud = ScrollingCaptureHUDWindow()
+        hud.onFinish = { [weak self] in self?.finishScrollingCapture() }
+        hud.onCancel = { [weak self] in self?.cancelScrollingCapture() }
+        scrollingHUD = hud
+        refreshScrollingHUD(pixelHeight: 0)
+        hud.present()
+    }
+
+    private func refreshScrollingHUD(pixelHeight: Int) {
+        guard let session = scrollingSession else { return }
+        let scale = session.pixelsPerPoint > 0 ? session.pixelsPerPoint : 1
+        scrollingHUD?.update(
+            pointHeight: Int((CGFloat(pixelHeight) / scale).rounded()),
+            shortcut: ShortcutManager.shared.shortcut(for: session.startAction).displayString
+        )
+    }
+
+    private func showScrollingBorder(for target: ScrollingSession.Target) {
+        let border = RecordingBorderWindow()
+        border.borderColor = .controlAccentColor
+        switch target {
+        case .region(let rect):
+            border.show(for: .staticRegion(rect))
+        case .window(let id):
+            border.onAvailabilityChanged = { [weak self] available in
+                if available {
+                    self?.scrollingHUD?.clearWarning()
+                } else {
+                    self?.scrollingHUD?.showWarning("Window is not visible.", persistent: true)
+                }
+            }
+            border.onTargetLost = { [weak self] in
+                guard let self else { return }
+                self.scrollingBorder = nil
+                self.scrollingHUD?.showWarning("Window closed. Press Done to keep what was captured.", persistent: true)
+            }
+            border.show(for: .trackedWindow(id))
+        }
+        scrollingBorder = border
+    }
+
+    // MARK: Capture loop
+
+    private func runScrollingCaptureLoop() async {
+        while !Task.isCancelled {
+            guard let session = scrollingSession else { return }
+            do {
+                let (frame, pointWidth) = try captureScrollingFrame(session.target)
+                if session.pixelsPerPoint == 0, pointWidth > 0 {
+                    scrollingSession?.pixelsPerPoint = CGFloat(frame.width) / pointWidth
+                }
+                let outcome = await session.engine.add(SendableCGImage(image: frame))
+                // Done or Cancel may have been pressed while the frame was
+                // being stitched. The frame is in the image either way.
+                guard !Task.isCancelled, scrollingSession != nil else { return }
+                handleScrollingOutcome(outcome, firstFrameHeight: frame.height)
+            } catch {
+                scrollingHUD?.showWarning(error.localizedDescription)
+            }
+            try? await Task.sleep(for: Self.scrollingFrameInterval)
+        }
+    }
+
+    /// One frame of the target and its width in points.
+    private func captureScrollingFrame(_ target: ScrollingSession.Target) throws -> (CGImage, CGFloat) {
+        switch target {
+        case .region(let rect):
+            // Leaves out this app's windows, so the panel and the border can
+            // sit over the region without showing up in the image.
+            return (try captureService.captureExcludingOwnWindows(bounds: rect), rect.width)
+        case .window(let id):
+            let (image, bounds) = try captureService.captureWindowCGImage(id: id)
+            return (image, bounds.width)
+        }
+    }
+
+    private func handleScrollingOutcome(_ outcome: ScrollStitcher.Outcome, firstFrameHeight: Int) {
+        switch outcome {
+        case .started:
+            refreshScrollingHUD(pixelHeight: firstFrameHeight)
+        case .appended(let height):
+            if (scrollingSession?.unmatchedFrames ?? 0) > 0 {
+                scrollingSession?.unmatchedFrames = 0
+                scrollingHUD?.clearWarning()
+            }
+            refreshScrollingHUD(pixelHeight: height)
+        case .unchanged:
+            // The view stopped moving on a frame that does not line up with
+            // the image. Tell the user now instead of waiting for more frames.
+            if (scrollingSession?.unmatchedFrames ?? 0) > 0 {
+                showLostTrackWarning()
+            }
+        case .noMatch:
+            scrollingSession?.unmatchedFrames += 1
+            // A single miss is often an animation on the page. Two in a row
+            // means the user scrolled up or scrolled too fast.
+            if (scrollingSession?.unmatchedFrames ?? 0) >= 2 {
+                showLostTrackWarning()
+            }
+        case .sizeChanged:
+            scrollingHUD?.showWarning(
+                "The window changed size. Press Done to keep what was captured.",
+                persistent: true
+            )
+        case .limitReached:
+            scrollingHUD?.showWarning(
+                "The image reached its maximum height. Press Done to save it.",
+                persistent: true
+            )
+        }
+    }
+
+    private func showLostTrackWarning() {
+        scrollingHUD?.showWarning(
+            "Lost track of the page. Scroll back up a little, then scroll down more slowly.",
+            persistent: true
+        )
+    }
+
+    // MARK: Finish / Cancel
+
+    func finishScrollingCapture() {
+        guard case .scrollingActive = state, let session = scrollingSession else { return }
+        tearDownScrollingUI()
+        scrollingSession = nil
+        state = .capturing
+        session.loop?.cancel()
+
+        Task {
+            // Let the frame being stitched right now land in the image.
+            await session.loop?.value
+            isScrollingActive = false
+            // The scale comes from the copy taken above. The loop writes it
+            // before handing the first frame to the engine, so a session with
+            // any frame in the image always has it. Done pressed before the
+            // first frame leaves both empty, and nothing is saved.
+            guard session.pixelsPerPoint > 0,
+                  let result = await session.engine.makeImage() else {
+                state = .idle
+                LibraryWindow.showAll()
+                return
+            }
+            let scale = session.pixelsPerPoint
+            let image = captureService.makeStableImage(
+                from: result.image,
+                size: NSSize(
+                    width: CGFloat(result.image.width) / scale,
+                    height: CGFloat(result.image.height) / scale
+                )
+            )
+            openEditor(with: image)
+        }
+    }
+
+    func cancelScrollingCapture() {
+        guard case .scrollingActive = state, let session = scrollingSession else { return }
+        tearDownScrollingUI()
+        scrollingSession = nil
+        session.loop?.cancel()
+        state = .idle
+        isScrollingActive = false
+        LibraryWindow.showAll()
+    }
+
+    private func tearDownScrollingUI() {
+        scrollingHUD?.dismiss()
+        scrollingHUD = nil
+        scrollingBorder?.hide()
+        scrollingBorder = nil
     }
 }
 

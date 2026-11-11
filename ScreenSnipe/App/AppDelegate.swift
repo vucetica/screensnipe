@@ -12,6 +12,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var captureRegionItem: NSMenuItem?
     private var captureFullScreenItem: NSMenuItem?
     private var captureWindowItem: NSMenuItem?
+    private var scrollingRegionItem: NSMenuItem?
+    private var scrollingWindowItem: NSMenuItem?
+    private var finishScrollingItem: NSMenuItem?
+    private var cancelScrollingItem: NSMenuItem?
     private var recordFullScreenItem: NSMenuItem?
     private var recordRegionItem: NSMenuItem?
     private var recordWindowItem: NSMenuItem?
@@ -34,6 +38,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
     private var countdownObserver: AnyCancellable?
     private var seriesObserver: AnyCancellable?
     private var seriesFrameObserver: AnyCancellable?
+    private var scrollingObserver: AnyCancellable?
     private var shortcutsObserver: AnyCancellable?
     private var blinkTimer: Timer?
     private var welcomePopover: NSPopover?
@@ -115,6 +120,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         captureSubmenu.addItem(windowItem)
         captureWindowItem = windowItem
 
+        captureSubmenu.addItem(NSMenuItem.separator())
+
+        let scrollRG = NSMenuItem(title: "Scrolling Region", action: #selector(scrollingRegionAction), keyEquivalent: "")
+        scrollRG.image = NSImage(systemSymbolName: "scroll", accessibilityDescription: "Scrolling Region")
+        captureSubmenu.addItem(scrollRG)
+        scrollingRegionItem = scrollRG
+
+        let scrollWD = NSMenuItem(title: "Scrolling Window", action: #selector(scrollingWindowAction), keyEquivalent: "")
+        scrollWD.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Scrolling Window")
+        captureSubmenu.addItem(scrollWD)
+        scrollingWindowItem = scrollWD
+
         captureItem.submenu = captureSubmenu
         menu.addItem(captureItem)
 
@@ -191,6 +208,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
         menu.addItem(cancelItem)
         cancelSeriesItem = cancelItem
 
+        // Finish/Cancel Scrolling Capture (top-level, hidden when no capture is running)
+        let finishScrollItem = NSMenuItem(title: "Finish Scrolling Capture", action: #selector(finishScrollingCapture), keyEquivalent: "")
+        finishScrollItem.isHidden = true
+        menu.addItem(finishScrollItem)
+        finishScrollingItem = finishScrollItem
+
+        let cancelScrollItem = NSMenuItem(title: "Cancel Scrolling Capture", action: #selector(cancelScrollingCapture), keyEquivalent: "")
+        cancelScrollItem.isHidden = true
+        menu.addItem(cancelScrollItem)
+        cancelScrollingItem = cancelScrollItem
+
         // Pause/Resume Recording (top-level, hidden when not recording)
         let pauseItem = NSMenuItem(title: "Pause Recording", action: #selector(togglePauseRecording), keyEquivalent: "")
         pauseItem.isHidden = true
@@ -238,6 +266,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .captureRegion: captureRegionItem,
             .captureFullScreen: captureFullScreenItem,
             .captureWindow: captureWindowItem,
+            .scrollingRegion: scrollingRegionItem,
+            .scrollingWindow: scrollingWindowItem,
             .recordFullScreen: recordFullScreenItem,
             .recordRegion: recordRegionItem,
             .recordWindow: recordWindowItem,
@@ -263,6 +293,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
             .captureRegion: #selector(captureRegion),
             .captureFullScreen: #selector(captureFullScreen),
             .captureWindow: #selector(captureWindowAction),
+            .scrollingRegion: #selector(scrollingRegionAction),
+            .scrollingWindow: #selector(scrollingWindowAction),
             .recordFullScreen: #selector(recordFullScreen),
             .recordRegion: #selector(recordRegionAction),
             .recordWindow: #selector(recordWindowAction),
@@ -305,6 +337,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self.coordinator.startCapture(mode: .fullScreen)
             case .captureWindow:
                 self.coordinator.startCapture(mode: .window)
+            case .scrollingRegion:
+                // Also finishes a running scrolling capture.
+                self.coordinator.startScrollingCapture(mode: .region)
+            case .scrollingWindow:
+                self.coordinator.startScrollingCapture(mode: .window)
             case .recordFullScreen:
                 self.coordinator.startFullScreenRecording()
             case .recordRegion:
@@ -364,6 +401,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 self.finishSeriesItem?.title = count == 1 ? "Finish Series (1 frame)" : "Finish Series (\(count) frames)"
             }
 
+        scrollingObserver = coordinator.$isScrollingActive
+            .receive(on: RunLoop.main)
+            .sink { [weak self] isActive in
+                self?.updateScrollingUI(isActive: isActive)
+            }
+
         countdownObserver = coordinator.$isCountingDown
             .receive(on: RunLoop.main)
             .sink { [weak self] isCountingDown in
@@ -409,6 +452,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
                 .withSymbolConfiguration(config)
             button.alphaValue = 1
         } else if !coordinator.isRecording {
+            restoreDefaultIcon()
+        }
+    }
+
+    private func updateScrollingUI(isActive: Bool) {
+        finishScrollingItem?.isHidden = !isActive
+        cancelScrollingItem?.isHidden = !isActive
+
+        guard let button = statusItem?.button else { return }
+        if isActive {
+            let config = NSImage.SymbolConfiguration(paletteColors: [.controlAccentColor])
+            button.image = NSImage(systemSymbolName: "scroll.fill", accessibilityDescription: "Scrolling capture in progress")?
+                .withSymbolConfiguration(config)
+            button.alphaValue = 1
+        } else if !coordinator.isRecording && !coordinator.isSeriesActive {
             restoreDefaultIcon()
         }
     }
@@ -613,6 +671,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMe
 
     @objc func captureWindowAction() {
         coordinator.startCapture(mode: .window)
+    }
+
+    @objc func scrollingRegionAction() {
+        coordinator.startScrollingCapture(mode: .region)
+    }
+
+    @objc func scrollingWindowAction() {
+        coordinator.startScrollingCapture(mode: .window)
+    }
+
+    @objc func finishScrollingCapture() {
+        coordinator.finishScrollingCapture()
+    }
+
+    @objc func cancelScrollingCapture() {
+        coordinator.cancelScrollingCapture()
     }
 
     @objc func recordFullScreen() {

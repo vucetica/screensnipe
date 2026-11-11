@@ -4,6 +4,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
     case captureRegion
     case captureFullScreen
     case captureWindow
+    case scrollingRegion
+    case scrollingWindow
     case recordFullScreen
     case recordRegion
     case recordWindow
@@ -22,6 +24,8 @@ enum ShortcutAction: String, CaseIterable, Codable {
         case .captureRegion: "Capture Region"
         case .captureFullScreen: "Capture Full Screen"
         case .captureWindow: "Capture Window"
+        case .scrollingRegion: "Scrolling Capture of Region"
+        case .scrollingWindow: "Scrolling Capture of Window"
         case .recordFullScreen: "Record Full Screen"
         case .recordRegion: "Record Region"
         case .recordWindow: "Record Window"
@@ -45,6 +49,11 @@ enum ShortcutAction: String, CaseIterable, Codable {
             StoredShortcut(keyEquivalent: "f", modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, keyCode: 3)
         case .captureWindow:
             StoredShortcut(keyEquivalent: "w", modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, keyCode: 13)
+        // Pressing the same shortcut again finishes the capture.
+        case .scrollingRegion:
+            StoredShortcut(keyEquivalent: "s", modifiers: NSEvent.ModifierFlags([.control, .shift]).rawValue, keyCode: 1)
+        case .scrollingWindow:
+            StoredShortcut(keyEquivalent: "s", modifiers: NSEvent.ModifierFlags([.command, .control, .shift]).rawValue, keyCode: 1)
         case .recordFullScreen:
             StoredShortcut(keyEquivalent: "c", modifiers: NSEvent.ModifierFlags([.control, .shift, .option]).rawValue, keyCode: 8)
         case .recordRegion:
@@ -73,7 +82,7 @@ enum ShortcutAction: String, CaseIterable, Codable {
     }
 
     static var captureActions: [ShortcutAction] {
-        [.captureRegion, .captureFullScreen, .captureWindow]
+        [.captureRegion, .captureFullScreen, .captureWindow, .scrollingRegion, .scrollingWindow]
     }
 
     static var recordingActions: [ShortcutAction] {

@@ -181,6 +181,15 @@ enum LibraryWindow {
         capWindow.target = appDelegate
         capWindow.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Window")
         captureSubmenu.addItem(capWindow)
+        captureSubmenu.addItem(.separator())
+        let capScrollRegion = NSMenuItem(title: "Scrolling Region", action: #selector(AppDelegate.scrollingRegionAction), keyEquivalent: "")
+        capScrollRegion.target = appDelegate
+        capScrollRegion.image = NSImage(systemSymbolName: "scroll", accessibilityDescription: "Scrolling Region")
+        captureSubmenu.addItem(capScrollRegion)
+        let capScrollWindow = NSMenuItem(title: "Scrolling Window", action: #selector(AppDelegate.scrollingWindowAction), keyEquivalent: "")
+        capScrollWindow.target = appDelegate
+        capScrollWindow.image = NSImage(systemSymbolName: "macwindow", accessibilityDescription: "Scrolling Window")
+        captureSubmenu.addItem(capScrollWindow)
         captureItem.submenu = captureSubmenu
         actionsMenu.addItem(captureItem)
 
@@ -257,6 +266,7 @@ enum LibraryWindow {
         let shortcuts = ShortcutManager.shared
         let shortcutMap: [(ShortcutAction, NSMenuItem)] = [
             (.captureRegion, capRegion), (.captureFullScreen, capFullScreen), (.captureWindow, capWindow),
+            (.scrollingRegion, capScrollRegion), (.scrollingWindow, capScrollWindow),
             (.recordRegion, recRegion), (.recordFullScreen, recFullScreen), (.recordWindow, recWindow),
             (.seriesRegion, serRegion), (.seriesFullScreen, serFullScreen), (.seriesWindow, serWindow),
         ]
